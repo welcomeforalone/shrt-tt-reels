@@ -9,7 +9,10 @@ logger = logging.getLogger(__name__)
 
 def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        # Загружать лучший видео- и аудиопоток любого формата, либо лучший комбинированный
+        'format': 'bestvideo+bestaudio/best',
+        # Автоматически упаковать итоговый файл в MP4 (требует установленный ffmpeg)
+        'merge_output_format': 'mp4',
         'cookiefile': '/home/botuser/app/cookies.txt',
         'proxy': 'socks5://warp:1080',
         'extractor_args': {
