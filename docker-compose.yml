@@ -33,11 +33,6 @@ services:
         - bot_network
       volumes:
         - ./cookies.txt:/home/botuser/app/cookies.txt
-      deploy:
-        resources:
-          limits:
-            cpus: '3'
-            memory: 2048M
       logging:
         driver: "json-file"
         options:

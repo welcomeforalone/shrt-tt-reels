@@ -28,8 +28,6 @@ async def compress_video(input_path: str, output_path: str) -> bool:
             'ffmpeg', '-y', '-i', input_path,
             '-vcodec', 'libx264', '-crf', '28', '-preset', 'ultrafast', # Изменили faster на ultrafast
             '-acodec', 'copy', output_path,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
         )
     await process.wait()
     return process.returncode == 0
