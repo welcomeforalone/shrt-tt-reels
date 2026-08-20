@@ -27,6 +27,7 @@ async def compress_video(input_path: str, output_path: str) -> bool:
     process = await asyncio.create_subprocess_exec(
             'ffmpeg', '-y', '-i', input_path,
             '-vcodec', 'libx264', '-crf', '28', '-preset', 'ultrafast', # Изменили faster на ultrafast
+            '-stats',
             '-acodec', 'copy', output_path,
         )
     await process.wait()

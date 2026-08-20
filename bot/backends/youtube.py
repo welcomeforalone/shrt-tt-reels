@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
     ydl_opts = {
             'outtmpl': output_path,
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
             'noplaylist': True,
             'quiet': True,
