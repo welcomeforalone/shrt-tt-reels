@@ -15,7 +15,13 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
             'noplaylist': True,
             'quiet': True,
             'no_warnings': True,
-            'cookiefile': '/home/botuser/app/cookies.txt',  # Added cookies path
+            'cookiefile': '/home/botuser/app/cookies.txt',
+            'extractor_args': {
+                'youtube': ['player_client=android', 'player_client=default']
+            },
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+            }
         }
     
     if use_proxy:

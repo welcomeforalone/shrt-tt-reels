@@ -32,7 +32,7 @@ services:
       networks:
         - bot_network
       volumes:
-        - ./cookies.txt:/home/botuser/app/cookies.txt:ro
+        - ./cookies.txt:/home/botuser/app/cookies.txt
       deploy:
         resources:
           limits:
