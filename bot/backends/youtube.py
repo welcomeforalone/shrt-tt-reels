@@ -1,19 +1,23 @@
 import asyncio
 import logging
-import yt_dlp
+import os
 from typing import Optional
+import yt_dlp
 
 from bot.config import config
 
 logger = logging.getLogger(__name__)
 
 def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
+    # Убираем расширение для outtmpl, чтобы yt-dlp корректно смержил в .mp4
+    base_path, _ = os.path.splitext(output_path)
+    outtmpl_path = f"{base_path}.%(ext)s"
+
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best',
         'merge_output_format': 'mp4',
         'noplaylist': True,
         'cookiefile': '/home/botuser/app/cookies.txt',
-        'proxy': 'socks5://warp:1080',
         'extractor_args': {
             'youtubepot-bgutilhttp': {
                 'base_url': ['http://bgutil-pot:4416']
@@ -21,16 +25,18 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
         },
         'quiet': False,
         'no_warnings': False,
-        'outtmpl': '/tmp/%(id)s.%(ext)s',
+        'outtmpl': outtmpl_path,
     }
     
     if use_proxy:
-        ydl_opts['proxy'] = config.warp_proxy_url
+        ydl_opts['proxy'] = getattr(config, 'warp_proxy_url', 'socks5://warp:1080')
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        return True
+        
+        # Проверяем, что итоговый файл действительно создан на диске
+        return os.path.exists(output_path)
     except Exception as e:
         logger.warning(f"yt-dlp failed (proxy={use_proxy}): {e}")
         return False
