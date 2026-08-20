@@ -23,24 +23,26 @@ services:
         max-file: "3"
 
   bot:
-    build: .
-    container_name: tiktok_downloader_bot
-    restart: unless-stopped
-    env_file: .env
-    depends_on:
-      - warp
-    networks:
-      - bot_network
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1024M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "3"
+      build: .
+      container_name: tiktok_downloader_bot
+      restart: unless-stopped
+      env_file: .env
+      depends_on:
+        - warp
+      networks:
+        - bot_network
+      volumes:
+        - ./cookies.txt:/home/botuser/app/cookies.txt:ro
+      deploy:
+        resources:
+          limits:
+            cpus: '1.0'
+            memory: 1024M
+      logging:
+        driver: "json-file"
+        options:
+          max-size: "50m"
+          max-file: "3"
 
 networks:
   bot_network:
