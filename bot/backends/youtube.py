@@ -19,8 +19,8 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
                 'base_url': ['http://bgutil-pot:4416']
             }
         },
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': False,
+        'no_warnings': False,
         'outtmpl': '/tmp/%(id)s.%(ext)s',
     }
     
