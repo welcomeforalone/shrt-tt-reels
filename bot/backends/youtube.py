@@ -9,22 +9,19 @@ logger = logging.getLogger(__name__)
 
 def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
     ydl_opts = {
-        # Берем лучшее видео + лучшее аудио (или лучший готовый, если есть)
         'format': 'bestvideo+bestaudio/best',
-        # FFmpeg автоматически упакует всё в итоговый mp4
         'merge_output_format': 'mp4',
+        'noplaylist': True,
         'cookiefile': '/home/botuser/app/cookies.txt',
         'proxy': 'socks5://warp:1080',
         'extractor_args': {
             'youtubepot-bgutilhttp': {
                 'base_url': ['http://bgutil-pot:4416']
-            },
-            'youtube': {
-                'player_client': ['web', 'mweb']
             }
         },
         'quiet': True,
         'no_warnings': True,
+        'outtmpl': '/tmp/%(id)s.%(ext)s',
     }
     
     if use_proxy:
