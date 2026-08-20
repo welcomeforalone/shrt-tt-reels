@@ -25,11 +25,16 @@ def check_rate_limit(user_id: int, max_requests: int) -> bool:
 async def compress_video(input_path: str, output_path: str) -> bool:
     logger.info(f"Compressing video {input_path}")
     process = await asyncio.create_subprocess_exec(
-            'ffmpeg', '-y', '-i', input_path,
-            '-vcodec', 'libx264', '-crf', '28', '-preset', 'ultrafast', # Изменили faster на ultrafast
-            '-stats',
-            '-acodec', 'copy', output_path,
-        )
+        'ffmpeg', '-y', '-i', input_path,
+        '-vcodec', 'libx264', 
+        '-preset', 'veryfast',             # Баланс скорости и качества
+        '-crf', '28', 
+        '-maxrate', '2M',                  # Жесткий лимит битрейта, чтобы не превысить 50 МБ
+        '-bufsize', '4M',
+        '-vf', "scale=-2:'min(1280,ih)'",  # Уменьшаем до 720x1280 (HD), если видео больше
+        '-stats',
+        '-acodec', 'copy', output_path
+    )
     await process.wait()
     return process.returncode == 0
 
