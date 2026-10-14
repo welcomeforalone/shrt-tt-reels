@@ -1,6 +1,6 @@
 aiogram==3.17.0
 pydantic==2.10.6
 pydantic-settings==2.7.1
-yt-dlp==2025.2.19
+yt-dlp>=2026.8.19
 httpx==0.28.1
-bgutil-ytdlp-pot-provider==2.0.2
+bgutil-ytdlp-pot-provider>=2.0.2

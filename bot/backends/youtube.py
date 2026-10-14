@@ -66,8 +66,11 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
         try:
             shutil.copyfile(master_cookie, temp_cookie_path)
             ydl_opts['cookiefile'] = temp_cookie_path
+            logger.info(f"Loaded cookies from {master_cookie} ({os.path.getsize(master_cookie)} bytes)")
         except Exception as e:
             logger.warning(f"Failed to copy cookies file: {e}")
+    else:
+        logger.info("No cookies file found or file is empty; continuing without cookies")
 
     if use_proxy:
         ydl_opts['proxy'] = getattr(config, 'warp_proxy_url', 'socks5://warp:1080')
