@@ -13,7 +13,6 @@
 
 ## 📑 Table of Contents
 
-- [How It Works (Architecture)](#-how-it-works-architecture)
 - [Key Features](#-key-features)
   - [1. TikTok](#1-tiktok)
   - [2. Instagram Reels](#2-instagram-reels)
@@ -28,51 +27,6 @@
 - [Repository Structure](#-repository-structure)
 - [License](#-license)
 
----
-
-## 🏗️ How It Works (Architecture)
-
-When a user sends a media link to the bot, it goes through the following pipeline:
-
-```mermaid
-flowchart TD
-    User([Telegram User]) -->|1. Sends URL| Bot[Bot Handler<br/>aiogram 3.x]
-
-    subgraph Defense ["1. Protection & Resource Limits (bot/utils.py)"]
-        RateLimit["Rate Limiter<br/>Sliding window requests/min per user"]
-        URLCheck["Basic URL Validation<br/>Scheme check + blocks private IPs & internal docker hosts"]
-        Semaphores["asyncio.Semaphore<br/>Max 3 concurrent downloads | Max 2 FFmpeg compressions"]
-        Timeout["asyncio.wait_for<br/>Overall download timeout 180s"]
-    end
-
-    Bot --> RateLimit
-    RateLimit -->|Exceeded| RejectRate["Reject: rate limit exceeded"]
-    RateLimit -->|OK| URLCheck
-    URLCheck -->|Unsafe URL| RejectURL["Reject: invalid or forbidden link"]
-    URLCheck -->|OK| Semaphores
-    Semaphores --> Timeout
-
-    subgraph Routing ["2. Platform Routing & Download (bot/downloader.py)"]
-        Timeout --> Detect{"Parse hostname<br/>(urlsplit)"}
-        Detect -->|tiktok.com| TikWM["tikwm.com API (bot/backends/tiktok.py)<br/>Watermark-free video or photo album"]
-        Detect -->|instagram.com| IG["yt-dlp + WARP proxy (bot/backends/instagram.py)"]
-        Detect -->|youtube.com / youtu.be| YT["yt-dlp + PO-token + WARP (bot/backends/youtube.py)"]
-        Detect -->|Other domains| Fallback["yt-dlp fallback"]
-        TikWM -.->|Fallback on API error| Fallback
-    end
-
-    subgraph MediaProcess ["3. Media Processing & Delivery (bot/handlers.py)"]
-        TikWM -->|Photo Carousel| Chunker["Group into albums of up to 10 photos<br/>MediaGroupBuilder"]
-        IG & YT & Fallback & TikWM -->|Video File| SizeCheck{"File size > 45 MB?"}
-        SizeCheck -->|No (<= 45 MB)| Send["Send to Telegram"]
-        SizeCheck -->|Yes (> 45 MB)| FFmpeg["FFmpeg: dynamic bitrate under 50 MB<br/>CRF 28, max 720p/1080p, 180s timeout"]
-        FFmpeg --> Send
-        Chunker --> Send
-    end
-
-    Send --> User
-    Send --> Cleanup["finally block: purge temp files from disk"]
-```
 
 ---
 

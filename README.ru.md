@@ -13,7 +13,6 @@
 
 ## 📑 Содержание
 
-- [Как это работает (Архитектура)](#-как-это-работает-архитектура)
 - [Основные возможности](#-основные-возможности)
   - [1. TikTok](#1-tiktok)
   - [2. Instagram Reels](#2-instagram-reels)
@@ -28,51 +27,6 @@
 - [Структура проекта](#-структура-проекта)
 - [Лицензия](#-лицензия)
 
----
-
-## 🏗️ Как это работает (Архитектура)
-
-Когда пользователь присылает боту ссылку, она проходит следующий путь:
-
-```mermaid
-flowchart TD
-    User([Пользователь Telegram]) -->|1. Присылает ссылку| Bot[Хендлер бота<br/>aiogram 3.x]
-
-    subgraph Defense ["1. Защита и проверка ресурсов (bot/utils.py)"]
-        RateLimit["Rate Limiter<br/>Лимит запросов в минуту на пользователя"]
-        URLCheck["Базовая валидация URL<br/>Схема http/https + отсечение приватных IP и внутренних хостов"]
-        Semaphores["asyncio.Semaphore<br/>Макс 3 загрузки | Макс 2 сжатия FFmpeg"]
-        Timeout["asyncio.wait_for<br/>Общий таймаут загрузки 180с"]
-    end
-
-    Bot --> RateLimit
-    RateLimit -->|Превышен| RejectRate["Сообщение: Превышен лимит запросов"]
-    RateLimit -->|ОК| URLCheck
-    URLCheck -->|Небезопасный URL| RejectURL["Сообщение: Недопустимая ссылка"]
-    URLCheck -->|ОК| Semaphores
-    Semaphores --> Timeout
-
-    subgraph Routing ["2. Определение платформы и загрузка (bot/downloader.py)"]
-        Timeout --> Detect{"Проверка hostname<br/>(urlsplit)"}
-        Detect -->|tiktok.com| TikWM["tikwm.com API (bot/backends/tiktok.py)<br/>Видео без watermark или фотоальбом"]
-        Detect -->|instagram.com| IG["yt-dlp + WARP proxy (bot/backends/instagram.py)"]
-        Detect -->|youtube.com / youtu.be| YT["yt-dlp + PO-token + WARP (bot/backends/youtube.py)"]
-        Detect -->|Другой сервис| Fallback["yt-dlp fallback"]
-        TikWM -.->|Если tikwm недоступен| Fallback
-    end
-
-    subgraph MediaProcess ["3. Обработка медиа (bot/handlers.py)"]
-        TikWM -->|Фото-карусель| Chunker["Разбивка фото на альбомы по 10 шт.<br/>MediaGroupBuilder"]
-        IG & YT & Fallback & TikWM -->|Видеофайл| SizeCheck{"Размер файла > 45 МБ?"}
-        SizeCheck -->|Нет (<= 45 МБ)| Send["Отправка в Telegram"]
-        SizeCheck -->|Да (> 45 МБ)| FFmpeg["FFmpeg: расчет битрейта под 50 МБ<br/>CRF 28, 720p/1080p, таймаут 180с"]
-        FFmpeg --> Send
-        Chunker --> Send
-    end
-
-    Send --> User
-    Send --> Cleanup["Блок finally: удаление временных файлов с диска"]
-```
 
 ---
 
