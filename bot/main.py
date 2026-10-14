@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher
 
 from bot.config import config
 from bot.handlers import router
+from bot.backends.tiktok import close_http_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,7 +18,15 @@ async def main():
     dp.include_router(router)
     
     logging.info("Starting bot...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        logging.info("Shutting down bot session and resources...")
+        await bot.session.close()
+        await close_http_client()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Bot stopped.")
