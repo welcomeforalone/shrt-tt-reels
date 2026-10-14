@@ -12,6 +12,10 @@ cookies.txt
 *_cookies.txt
 *.cookies
 
+# Persistent User Data
+data/
+user_langs.json
+
 # Custom files
 repomix-output.xml
 

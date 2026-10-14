@@ -5,3 +5,5 @@ __pycache__/
 cookies.txt
 *_cookies.txt
 *.cookies
+data/
+user_langs.json

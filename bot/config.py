@@ -13,5 +13,6 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 5
     max_concurrent_downloads: int = 3
     max_concurrent_compressions: int = 2
+    user_langs_path: str = "data/user_langs.json"
 
 config = Settings()

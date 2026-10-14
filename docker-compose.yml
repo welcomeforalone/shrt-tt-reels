@@ -42,6 +42,7 @@ services:
       - bot_network
     volumes:
       - ./cookies.txt:/home/botuser/app/cookies.txt
+      - ./data:/home/botuser/app/data
     logging:
       driver: "json-file"
       options:

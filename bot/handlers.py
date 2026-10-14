@@ -3,27 +3,62 @@ import re
 import logging
 from typing import List
 from aiogram import Router, F
-from aiogram.types import Message, FSInputFile
-from aiogram.filters import CommandStart
+from aiogram.types import Message, FSInputFile, CallbackQuery
+from aiogram.filters import CommandStart, Command
 from aiogram.utils.media_group import MediaGroupBuilder
 
 from bot.config import config
 from bot.utils import check_rate_limit, get_file_size_mb, compress_video, is_safe_url
 from bot.downloader import process_download
+from bot.i18n import t, get_language_keyboard, set_user_language
 
 logger = logging.getLogger(__name__)
 router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    user_id = message.from_user.id
+    lang_code = message.from_user.language_code
+    text = t("welcome", user_id=user_id, user_language_code=lang_code)
     await message.answer(
-        "Send me a link from TikTok, Instagram Reels, or YouTube Shorts, "
-        "and I will download it without a watermark."
+        text,
+        reply_markup=get_language_keyboard(),
+        parse_mode="Markdown"
     )
+
+@router.message(Command("lang", "language"))
+async def cmd_lang(message: Message):
+    user_id = message.from_user.id
+    lang_code = message.from_user.language_code
+    text = t("choose_lang", user_id=user_id, user_language_code=lang_code)
+    await message.answer(
+        text,
+        reply_markup=get_language_keyboard(),
+        parse_mode="Markdown"
+    )
+
+@router.callback_query(F.data.startswith("set_lang:"))
+async def handle_set_language(callback: CallbackQuery):
+    lang = callback.data.split(":")[1]
+    user_id = callback.from_user.id
+    set_user_language(user_id, lang)
+    
+    await callback.answer(t("lang_selected", lang=lang))
+    
+    new_text = f"{t('lang_selected', lang=lang)}\n\n{t('welcome', lang=lang)}"
+    try:
+        await callback.message.edit_text(
+            new_text,
+            reply_markup=get_language_keyboard(),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.debug(f"Could not edit message on language switch: {e}")
 
 @router.message(F.text.regexp(r"https?://[^\s]+"))
 async def handle_url(message: Message):
     user_id = message.from_user.id
+    lang_code = message.from_user.language_code
     
     # Extract clean URL from text
     match = re.search(r"https?://[^\s]+", message.text)
@@ -33,35 +68,35 @@ async def handle_url(message: Message):
 
     # Validate URL against SSRF and unsupported schemes
     if not is_safe_url(url):
-        await message.answer("❌ Invalid or forbidden URL.")
+        await message.answer(t("unsafe_url", user_id=user_id, user_language_code=lang_code))
         return
 
     if not check_rate_limit(user_id, config.rate_limit_per_minute):
-        await message.answer("Rate limit exceeded. Please wait a minute.")
+        await message.answer(t("rate_limit", user_id=user_id, user_language_code=lang_code))
         return
 
-    status_msg = await message.answer("Downloading... ⏳")
+    status_msg = await message.answer(t("downloading", user_id=user_id, user_language_code=lang_code))
     files_to_cleanup: List[str] = []
 
     try:
         downloaded_result = await process_download(url)
         
         if not downloaded_result:
-            await status_msg.edit_text("❌ Failed to download. All backends failed (or API is temporarily down).")
+            await status_msg.edit_text(t("download_failed", user_id=user_id, user_language_code=lang_code))
             return
 
         # --- Handle Photo Carousel ---
         if isinstance(downloaded_result, list):
             files_to_cleanup.extend(downloaded_result)
             if not downloaded_result:
-                await status_msg.edit_text("❌ No photos found to download.")
+                await status_msg.edit_text(t("no_photos_found", user_id=user_id, user_language_code=lang_code))
                 return
 
             if len(downloaded_result) == 1:
-                await status_msg.edit_text("Uploading photo to Telegram... 📤")
+                await status_msg.edit_text(t("uploading_photo", user_id=user_id, user_language_code=lang_code))
                 await message.answer_photo(photo=FSInputFile(downloaded_result[0]))
             else:
-                await status_msg.edit_text("Uploading photos to Telegram... 📤")
+                await status_msg.edit_text(t("uploading_photos", user_id=user_id, user_language_code=lang_code))
                 chunk_size = 10
                 for i in range(0, len(downloaded_result), chunk_size):
                     chunk = downloaded_result[i:i + chunk_size]
@@ -85,14 +120,14 @@ async def handle_url(message: Message):
         files_to_cleanup.append(downloaded_path)
         
         if not os.path.exists(downloaded_path):
-            await status_msg.edit_text("❌ Failed to download the video.")
+            await status_msg.edit_text(t("video_not_found", user_id=user_id, user_language_code=lang_code))
             return
             
         file_size = get_file_size_mb(downloaded_path)
         final_path = downloaded_path
         
         if file_size > config.max_video_size_mb:
-            await status_msg.edit_text("Video is large, compressing... 🗜️")
+            await status_msg.edit_text(t("compressing", user_id=user_id, user_language_code=lang_code))
             compressed_path = downloaded_path.replace(".mp4", "_compressed.mp4")
             files_to_cleanup.append(compressed_path)
             
@@ -101,13 +136,13 @@ async def handle_url(message: Message):
             if success and os.path.exists(compressed_path):
                 final_path = compressed_path
                 if get_file_size_mb(final_path) > 50:
-                    await status_msg.edit_text("❌ Video is still too large for Telegram after compression.")
+                    await status_msg.edit_text(t("too_large_after_compress", user_id=user_id, user_language_code=lang_code))
                     return
             else:
-                await status_msg.edit_text("❌ Failed to compress video.")
+                await status_msg.edit_text(t("compress_failed", user_id=user_id, user_language_code=lang_code))
                 return
 
-        await status_msg.edit_text("Uploading to Telegram... 📤")
+        await status_msg.edit_text(t("uploading_video", user_id=user_id, user_language_code=lang_code))
         video_file = FSInputFile(final_path)
         await message.answer_video(video=video_file, supports_streaming=True)
         try:
@@ -118,7 +153,7 @@ async def handle_url(message: Message):
     except Exception as e:
         logger.error(f"Handler error: {e}")
         try:
-            await status_msg.edit_text("❌ An unexpected error occurred.")
+            await status_msg.edit_text(t("unexpected_error", user_id=user_id, user_language_code=lang_code))
         except Exception:
             pass
     finally:
