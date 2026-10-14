@@ -4,278 +4,269 @@
 [![Aiogram 3.x](https://img.shields.io/badge/aiogram-3.x-2CA5E0.svg?style=flat&logo=telegram&logoColor=white)](https://docs.aiogram.dev/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
 [![CI/CD](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-2088FF.svg?style=flat&logo=githubactions&logoColor=white)](https://github.com/welcomeforalone/shrt-tt-reels/actions)
-[![DevSecOps SSRF Protected](https://img.shields.io/badge/DevSecOps-SSRF%20Protected-brightgreen.svg?style=flat&logo=shield&logoColor=white)](#-devsecops-и-архитектура-безопасности)
-[![Лицензия: MIT](https://img.shields.io/badge/Лицензия-MIT-yellow.svg?style=flat)](LICENSE)
-[![English Docs](https://img.shields.io/badge/Documentation-English%20🇺🇸-blue?style=flat)](README.md)
+[![Ruff](https://img.shields.io/badge/Linter-Ruff-orange.svg?style=flat)](https://github.com/astral-sh/ruff)
+[![Tests: Pytest](https://img.shields.io/badge/Tests-Pytest-green.svg?style=flat&logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![License: MIT](https://img.shields.io/badge/Лицензия-MIT-yellow.svg?style=flat)](LICENSE)
 
 🌐 **Язык / Language:** [🇷🇺 Русский](README.ru.md) | [🇺🇸 English Documentation (README.md)](README.md)
 
----
-
-**shrt-tt-reels** — высокопроизводительный, отказоустойчивый асинхронный Telegram-бот корпоративного уровня, предназначенный для загрузки, интеллектуального перекодирования и отправки медиаконтента из **TikTok** (HD-видео без водяных знаков и фото-карусели), **Instagram Reels** и **YouTube Shorts**.
-
-Проект спроектирован по строгим стандартам **DevSecOps**: многоуровневая фильтрация SSRF и защита от DNS Rebinding, автоматизированный обход анти-бот систем (локальный генератор Proof-of-Origin токенов YouTube в связке с SOCKS5-туннелированием через Cloudflare WARP), асинхронное ограничение конкурентных задач, безопасный рейт-лимитер с защитой от утечек памяти, умная компрессия видео через FFmpeg и полная двуязычная локализация (RU/EN).
-
----
 
 ## 📑 Содержание
 
-- [Архитектурный обзор](#-архитектурный-обзор)
-- [Ключевые возможности](#-ключевые-возможности)
-  - [Обработка TikTok](#1-обработка-tiktok-botbackendstiktokpy)
-  - [Обработка Instagram Reels](#2-обработка-instagram-reels-botbackendsinstagrampy)
-  - [Обработка YouTube Shorts](#3-обработка-youtube-shorts-botbackendsyoutubepy)
-  - [Умное сжатие видео](#4-умное-сжатие-видео-botutilspy)
-  - [Двуязычная локализация (i18n)](#5-двуязычная-локализация-i18n-boti18npy)
-- [DevSecOps и архитектура безопасности](#-devsecops-и-архитектура-безопасности)
+- [Как это работает (Архитектура)](#-как-это-работает-архитектура)
+- [Основные возможности](#-основные-возможности)
+  - [1. TikTok](#1-tiktok)
+  - [2. Instagram Reels](#2-instagram-reels)
+  - [3. YouTube Shorts](#3-youtube-shorts)
+  - [4. Сжатие видео через FFmpeg](#4-сжатие-видео-через-ffmpeg)
+  - [5. Двуязычный интерфейс (i18n)](#5-двуязычный-интерфейс-i18n)
+  - [6. Безопасность и лимиты ресурсов](#6-безопасность-и-лимиты-ресурсов)
 - [Быстрый старт (Docker Compose)](#-быстрый-старт-docker-compose)
-- [Конфигурация (Environment Variables)](#-конфигурация-environment-variables)
+- [Локальный запуск для разработки](#-локальный-запуск-для-разработки)
+- [Настройки (.env)](#-настройки-env)
 - [CI/CD пайплайн](#-cicd-пайплайн)
-- [Структура репозитория](#-структура-репозитория)
+- [Структура проекта](#-структура-проекта)
 - [Лицензия](#-лицензия)
 
 ---
 
-## 🏗️ Архитектурный обзор
+## 🏗️ Как это работает (Архитектура)
 
-Обработка запроса построена на базе `aiogram 3.x` и `asyncio`. До запуска загрузки запрос проходит защитный периметр, после чего маршрутизируется по паттерну «Цепочка ответственности» (Chain of Responsibility):
+Когда пользователь присылает боту ссылку, она проходит следующий путь:
 
 ```mermaid
 flowchart TD
-    User([Пользователь Telegram]) -->|1. Отправляет ссылку| Bot[Контейнер Telegram-бота<br/>aiogram 3.x + asyncio]
+    User([Пользователь Telegram]) -->|1. Присылает ссылку| Bot[Хендлер бота<br/>aiogram 3.x]
 
-    subgraph SecurityLayer ["1. Слой безопасности и ресурсов (bot/utils.py)"]
-        SSRF["Фильтр SSRF и DNS Rebinding<br/>Схема + Blocklist + socket.getaddrinfo + ipaddress"]
-        RateLimit["Rate Limiter скользящего окна<br/>5 запросов/мин на пользователя + очистка памяти GC"]
-        Semaphores["Семафоры asyncio.Semaphore<br/>Загрузки: макс 3 | Компрессия: макс 2"]
+    subgraph Defense ["1. Защита и проверка ресурсов (bot/utils.py)"]
+        RateLimit["Rate Limiter<br/>Лимит запросов в минуту на пользователя"]
+        URLCheck["Базовая валидация URL<br/>Схема http/https + отсечение приватных IP и внутренних хостов"]
+        Semaphores["asyncio.Semaphore<br/>Макс 3 загрузки | Макс 2 сжатия FFmpeg"]
+        Timeout["asyncio.wait_for<br/>Общий таймаут загрузки 180с"]
     end
 
-    Bot --> SSRF
-    SSRF -->|Безопасный публичный URL| RateLimit
-    SSRF -->|Запрещенный хост/IP/схема| RejectSSRF["Отклонение: unsafe_url"]
-    RateLimit -->|Лимит не превышен| Semaphores
-    RateLimit -->|Превышен лимит| RejectLimit["Отклонение: rate_limit"]
+    Bot --> RateLimit
+    RateLimit -->|Превышен| RejectRate["Сообщение: Превышен лимит запросов"]
+    RateLimit -->|ОК| URLCheck
+    URLCheck -->|Небезопасный URL| RejectURL["Сообщение: Недопустимая ссылка"]
+    URLCheck -->|ОК| Semaphores
+    Semaphores --> Timeout
 
-    subgraph RouterLayer ["2. Маршрутизатор платформ / Цепочка ответственности (bot/downloader.py)"]
-        Semaphores --> Router{"Определение платформы<br/>(Regex-шаблоны)"}
-        Router -->|TikTok URL| TikWM["API tikwm.com (bot/backends/tiktok.py)<br/>HD без водяных знаков / Фотоальбомы"]
-        Router -->|Instagram URL| IGAPI["Хук публичного API (bot/backends/instagram.py)"]
-        Router -->|YouTube / Fallback| YTDLPRouter["Движок yt-dlp (bot/backends/youtube.py)"]
-        TikWM -.->|Fallback при сбое API (если не /photo/)| YTDLPRouter
-        IGAPI -.->|Fallback при сбое API| YTDLPRouter
+    subgraph Routing ["2. Определение платформы и загрузка (bot/downloader.py)"]
+        Timeout --> Detect{"Проверка hostname<br/>(urlsplit)"}
+        Detect -->|tiktok.com| TikWM["tikwm.com API (bot/backends/tiktok.py)<br/>Видео без watermark или фотоальбом"]
+        Detect -->|instagram.com| IG["yt-dlp + WARP proxy (bot/backends/instagram.py)"]
+        Detect -->|youtube.com / youtu.be| YT["yt-dlp + PO-token + WARP (bot/backends/youtube.py)"]
+        Detect -->|Другой сервис| Fallback["yt-dlp fallback"]
+        TikWM -.->|Если tikwm недоступен| Fallback
     end
 
-    subgraph InfraLayer ["3. Анти-бот и сетевая инфраструктура (docker-compose.yml)"]
-        YTDLPRouter --> CookieClone["Потокобезопасная изоляция cookies<br/>cookies.txt ➔ {uuid}_cookies.txt"]
-        CookieClone --> POToken["Генератор PO-токенов (Proof-of-Origin)<br/>Сервис bgutil-pot (:4416) внутри bot_network"]
-        POToken --> WARPProxy["Туннелирование исходящего трафика<br/>Cloudflare WARP (socks5://warp:1080)"]
-        WARPProxy -.->|Сбой повторов с экспоненциальной задержкой| DirectConn["Прямое соединение без прокси (Fallback)"]
+    subgraph MediaProcess ["3. Обработка медиа (bot/handlers.py)"]
+        TikWM -->|Фото-карусель| Chunker["Разбивка фото на альбомы по 10 шт.<br/>MediaGroupBuilder"]
+        IG & YT & Fallback & TikWM -->|Видеофайл| SizeCheck{"Размер файла > 45 МБ?"}
+        SizeCheck -->|Нет (<= 45 МБ)| Send["Отправка в Telegram"]
+        SizeCheck -->|Да (> 45 МБ)| FFmpeg["FFmpeg: расчет битрейта под 50 МБ<br/>CRF 28, 720p/1080p, таймаут 180с"]
+        FFmpeg --> Send
+        Chunker --> Send
     end
 
-    subgraph MediaLayer ["4. Обработка и отправка медиа (bot/handlers.py, bot/utils.py)"]
-        TikWM -->|Фото-карусель| PhotoChunker["Разбивка фото-карусели<br/>Чанки по 10 фото для MediaGroupBuilder"]
-        WARPProxy & DirectConn & TikWM -->|Видеофайл| SizeCheck{"Размер файла > 45 МБ?<br/>(MAX_VIDEO_SIZE_MB)"}
-        SizeCheck -->|Нет (<= 45 МБ)| Dispatcher["Диспетчер отправки Telegram"]
-        SizeCheck -->|Да (> 45 МБ)| FFmpeg["Транскодирование FFmpeg<br/>libx264, veryfast, crf 28, maxrate 2M<br/>Таймаут 180с и принудительный SIGKILL"]
-        FFmpeg --> FinalCheck{"Размер после сжатия <= 50 МБ?"}
-        FinalCheck -->|Да| Dispatcher
-        FinalCheck -->|Нет| RejectSize["Ошибка: Видео превышает лимит Telegram 50 МБ"]
-        PhotoChunker --> Dispatcher
-    end
-
-    Dispatcher -->|answer_video / answer_photo / answer_media_group| TelegramAPI["Telegram Cloud API"]
-    TelegramAPI --> User
-    Dispatcher --> Cleanup["Гарантированная очистка ресурсов<br/>Блоки finally удаляют временные видео, чанки фото и cookies"]
+    Send --> User
+    Send --> Cleanup["Блок finally: удаление временных файлов с диска"]
 ```
 
 ---
 
-## ✨ Ключевые возможности
+## ✨ Основные возможности
 
-### 1. Обработка TikTok (`bot/backends/tiktok.py`)
-- **Загрузка HD-видео без водяных знаков**: Запрос к `https://www.tikwm.com/api/` (`hd=1`) через оптимизированный пул соединений `httpx.AsyncClient` с пользовательскими заголовками современного браузера.
-- **Поддержка фото-каруселей**: Распознавание массивов изображений (`images`) и их последовательная загрузка.
-- **Группировка в альбомы Telegram**: Разбивка каруселей любого объема (включая альбомы из 35+ фото) на группы максимум по 10 снимков с помощью `MediaGroupBuilder` в строгом соответствии с лимитами Telegram API. Одиночные фотографии отправляются методом `answer_photo`.
-- **Атомарный откат при сбоях**: При разрыве соединения во время загрузки альбома все частично записанные файлы (`_{index}.jpg`) немедленно удаляются из файловой системы в блоке перехвата исключений.
-- **Защита yt-dlp от падений**: Если API `tikwm.com` вернуло ошибку, переход на запасной бэкенд `yt-dlp` блокируется для ссылок, содержащих `/photo/`, так как парсер yt-dlp аварийно завершается на фото-ссылках TikTok.
+### 1. TikTok
+- **Видео без водяного знака**: Запрос отправляется к публичному неофициальному API `tikwm.com`.
+- **Потоковое скачивание (Stream)**: Видео скачивается чанками по 64 КБ с проверкой `Content-Length` и лимитом размера, чтобы не перегружать оперативную память бота.
+- **Фото-карусели**: Если пользователь прислал ссылку на карусель фотографий, бот скачивает все снимки и отправляет их альбомами до 10 штук через `MediaGroupBuilder` (в соответствии с ограничениями Telegram Bot API).
+- **Fallback на yt-dlp**: Если сервис `tikwm.com` временно недоступен, бот пытается скачать видео через `yt-dlp` (за исключением ссылок с фото, так как yt-dlp не поддерживает фото-слайды TikTok).
 
-### 2. Обработка Instagram Reels (`bot/backends/instagram.py`)
-- **Модульная цепочка обязанностей**: Реализован абстрагированный интерфейс `download_via_public_api`, позволяющий легко интегрировать публичные или приватные скрейперы Instagram.
-- **Автоматический откат на yt-dlp**: При отсутствии внешнего API запрос передается в `yt-dlp`, туннелируемый через IP-пулы Cloudflare WARP.
+### 2. Instagram Reels
+- **Загрузка через yt-dlp**: У Instagram нет стабильного публичного API без обязательной авторизации Meta. Поэтому Reels загружаются через движок `yt-dlp` с маршрутизацией через Cloudflare WARP.
 
-### 3. Обработка YouTube Shorts (`bot/backends/youtube.py`)
-- **Обход анти-бот проверок YouTube (PO Token)**: Интеграция плагина `bgutil-ytdlp-pot-provider` с локальным HTTP-демоном (`http://bgutil-pot:4416`), генерирующим валидные криптографические Proof-of-Origin токены посетителя.
-- **Туннелирование через Cloudflare WARP**: Маршрутизация загрузок через внутренний SOCKS5-прокси (`socks5://warp:1080`), исключающая блокировки по IP-репутации хостинга.
-- **Потокобезопасная изоляция cookies**: Файл `/home/botuser/app/cookies.txt` клонируется в индивидуальный файл для каждого процесса (`{base_path}_cookies.txt`). Это предотвращает гонки потоков (race conditions) при параллельной работе воркеров `yt-dlp`.
-- **Экспоненциальная задержка и прямое соединение**: Механизм повторных попыток с экспоненциальным интервалом (`2 ** attempt` секунд). В случае исчерпания попыток через прокси выполняется контрольная попытка прямой загрузки без прокси.
-- **Очистка артефактов**: Очистка по маске `{base_path}.*` гарантированно удаляет временные файлы (`.part`, `.ytdl`, `_cookies.txt`).
+### 3. YouTube Shorts
+- **Обход блокировок YouTube (PO-токены + WARP)**: YouTube блокирует многие запросы из дата-центров (ошибки `Sign in to confirm you're not a bot`). Для решения этой проблемы в docker-compose поднят локальный сервис `bgutil-pot`, генерирующий Proof-of-Origin токены, а исходящий трафик идет через контейнер Cloudflare WARP (SOCKS5 прокси).
+- **Фильтрация по длительности и разрешению**: Чтобы бот не зависал на скачивании 2-часовых стримов или 4K-видео, в `yt-dlp` установлен фильтр длительности (`max_youtube_duration_seconds=600`) и ограничение разрешения (`height<=1080`), с приоритетом кодека H.264/MP4.
+- **Изоляция cookies**: Если передан файл `cookies.txt`, бот перед скачиванием создает его изолированную копию под уникальным именем на время задачи, предотвращая гонку потоков при параллельных запросах.
 
-### 4. Умное сжатие видео (`bot/utils.py`)
-- **Адаптивный контроль размера**: Сравнение размера скачанного ролика с порогом `MAX_VIDEO_SIZE_MB` (по умолчанию: 45 МБ). При превышении активируется FFmpeg:
-  ```bash
-  ffmpeg -y -i <input> -vcodec libx264 -preset veryfast -crf 28 -maxrate 2M -bufsize 4M -vf scale=-2:'min(1280,ih)' -stats -acodec copy <output>
-  ```
-  - Ограничение разрешения до 720p/1080p (`scale=-2:'min(1280,ih)'`) с сохранением соотношения сторон.
-  - Жесткий потолок битрейта 2 Мбит/с с буфером 4 МБ гарантирует, что итоговый файл впишется в лимит Telegram (50 МБ).
-  - Прямое копирование аудиодорожки (`-acodec copy`) для экономии процессорного времени.
-- **Сторожевой таймер (Watchdog)**: Процесс обернут в `asyncio.wait_for(..., timeout=180)`. Если конвертация зависает дольше 3 минут, процесс немедленно уничтожается через `process.kill()`, а временные артефакты удаляются.
+### 4. Сжатие видео через FFmpeg
+- Telegram Bot API не позволяет ботам отправлять файлы размером более 50 МБ.
+- Если видео превышает 45 МБ, бот запускает `ffmpeg`:
+  - Через `ffprobe` определяется длительность ролика.
+  - На основе длительности вычисляется целевой битрейт видео, чтобы итоговый файл гарантированно уложился в 46–48 МБ.
+  - Разрешение уменьшается максимум до 720p/1080p (`scale=-2:'min(1280,ih)'`).
+  - Процесс сжатия защищен таймаутом `asyncio.wait_for(..., timeout=180)`: если сжатие зависает, процесс завершается сигналом kill, а временные файлы удаляются.
 
-### 5. Двуязычная локализация (i18n) (`bot/i18n.py`)
-- **Поддерживаемые языки**: Русский (`ru`) и английский (`en`).
-- **Интерактивное управление**: Смена языка доступна командами `/lang`, `/language` или по нажатию инлайн-кнопок (`InlineKeyboardMarkup`) в стартовом сообщении `/start`.
-- **Автоопределение**: Анализируется поле `user.language_code`. Пользователям с кодами `ru`, `be` (белорусский) и `uk` (украинский) автоматически назначается русский интерфейс.
-- **Атомарное сохранение**: Языковые предпочтения пользователей сохраняются в файл `data/user_langs.json` через временный файл (`data/user_langs.json.tmp` ➔ `os.replace`), что предотвращает повреждение JSON при аварийной остановке контейнера.
-- Английская версия документации доступна в [README.md](README.md).
+### 5. Двуязычный интерфейс (i18n)
+- Поддержка русского (`ru`) и английского (`en`) языков.
+- Автоматическое определение языка пользователя по коду его Telegram-клиента (`ru`, `be`, `uk` -> русский, остальные -> английский).
+- Команда `/lang` или инлайн-кнопки в `/start` для ручного переключения.
+- Выбранный язык атомарно сохраняется на диск (`user_langs.json.tmp` -> `os.replace`), чтобы избежать повреждения JSON-файла при перезапуске контейнера.
 
----
-
-## 🛡️ DevSecOps и архитектура безопасности
-
-В проекте реализованы жесткие меры противодействия сетевым атакам и исчерпанию ресурсов:
-
-| Вектор безопасности | Реализация в кодовой базе | Файл |
-| :--- | :--- | :--- |
-| **Защита от SSRF** | Разрешены только протоколы `http` и `https`. Проверяется черный список служебных имен контейнеров (`localhost`, `warp`, `warp_proxy`, `bgutil-pot`, `bgutil_pot`, `bot`, `tiktok_downloader_bot`) и внутренних доменных зон (`.local`, `.internal`, `.localhost`, `.lan`). | `bot/utils.py` |
-| **Защита от DNS Rebinding** | Выполняется резолв адреса через `socket.getaddrinfo(hostname, None)`. Каждый полученный IP-адрес проверяется через модуль `ipaddress`. Блокируются диапазоны RFC 1918 (приватные), loopback (`127.0.0.0/8`), link-local (`169.254.0.0/16`), мультикаст и зарезервированные адреса. | `bot/utils.py` |
-| **Изоляция сети Docker** | Контейнеры `warp` (прокси) и `bgutil-pot` **не имеют проброшенных портов на хост**. Взаимодействие происходит внутри закрытой bridge-сети `bot_network`. | `docker-compose.yml` |
-| **Минимальные привилегии** | Контейнер с ботом работает от непривилегированного пользователя `botuser` (UID 1000) без доступа к sudo. | `Dockerfile` |
-| **Ограничение конкурентности** | Использование `asyncio.Semaphore`: жесткое ограничение параллельных загрузок (`MAX_CONCURRENT_DOWNLOADS=3`) и ресурсоемких процессов компрессии (`MAX_CONCURRENT_COMPRESSIONS=2`). | `bot/utils.py` |
-| **Защита памяти рейт-лимитера** | Алгоритм скользящего окна (5 запросов в минуту). Удаляются устаревшие временные метки. При превышении словарем размера в 500 записей запускается принудительная сборка мусора неактивных пользователей. | `bot/utils.py` |
-| **Защита от переполнения диска** | Параметр `'max_filesize': 150MB` в `yt-dlp` предотвращает скачивание многочасовых трансляций. Все промежуточные файлы удаляются в блоках `finally`. | `bot/backends/youtube.py` |
-| **Корректное завершение (Graceful Shutdown)** | При получении сигналов `SIGINT`/`SIGTERM` вызываются `bot.session.close()` и `close_http_client()`, корректно освобождая системные ресурсы. | `bot/main.py` |
+### 6. Безопасность и лимиты ресурсов
+- **Защита от спама (Rate Limiter)**: Ограничивает пользователя до 5 запросов в минуту с автоматической очисткой старых записей. Проверка срабатывает **до** любых сетевых операций.
+- **Базовая валидация URL (SSRF)**: Проверяется схема (`http`/`https`), блокируются обращения к `localhost`, приватным подсетям (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.0/8`), а также к внутренним именам контейнеров (`warp`, `bgutil-pot`). Резолв домена вынесен в фоновый поток с таймаутом 3 секунды, чтобы не блокировать event loop.
+- **Ограничение параллелизма (`asyncio.Semaphore`)**: Максимум 3 одновременных скачивания и 2 сжатия FFmpeg, чтобы бот не утилизировал 100% CPU/RAM на недорогом VPS.
+- **Общий таймаут загрузки**: `asyncio.wait_for` на 180 секунд гарантирует, что зависший сетевой запрос не займет навсегда слот семафора.
+- **Непривилегированный пользователь**: Контейнер запускается от имени системного пользователя `botuser` (UID 1000).
 
 ---
 
 ## 🚀 Быстрый старт (Docker Compose)
 
-### Системные требования
-- Сервер под управлением Linux, macOS или Windows с установленными **Docker** и **Docker Compose v2+**.
-- Токен Telegram-бота, полученный у [@BotFather](https://t.me/BotFather).
+Самый простой способ запустить бота со всеми зависимостями (WARP, PO-генератор, FFmpeg):
 
-### Пошаговая установка
-
-#### 1. Клонирование репозитория
+### 1. Клонируйте репозиторий
 ```bash
 git clone https://github.com/welcomeforalone/shrt-tt-reels.git
 cd shrt-tt-reels
 ```
 
-#### 2. Создание файла конфигурации
-Скопируйте шаблон переменных окружения:
+### 2. Настройте файл окружения
+Скопируйте пример конфига:
 ```bash
 cp .env.example .env
 ```
-Откройте файл `.env` и вставьте ваш токен Telegram:
+Откройте `.env` и укажите токен вашего бота, полученный у [@BotFather](https://t.me/BotFather):
 ```ini
 BOT_TOKEN=1234567890:AAH_your_telegram_bot_token_here
-WARP_PROXY_URL=socks5://warp:1080
-MAX_VIDEO_SIZE_MB=45
-RATE_LIMIT_PER_MINUTE=5
-MAX_CONCURRENT_DOWNLOADS=3
-MAX_CONCURRENT_COMPRESSIONS=2
-USER_LANGS_PATH=data/user_langs.json
 ```
 
-#### 3. Подготовка файла cookies
-Создайте пустой файл `cookies.txt`, чтобы предотвратить ошибку монтирования директории в Docker:
+### 3. Создайте файл для cookies (опционально)
 ```bash
 touch cookies.txt
 ```
-> [!TIP]
-> При частых блокировках со стороны YouTube экспортируйте cookies вашего браузера в формате Netscape и вставьте их содержимое в `cookies.txt`.
+*(Если YouTube требует авторизацию, экспортируйте cookies из браузера в формате Netscape и вставьте в этот файл).*
 
-#### 4. Запуск контейнеров
-Соберите образ и запустите инфраструктуру в фоновом режиме:
+### 4. Запустите контейнеры
 ```bash
 docker compose up -d --build
 ```
 
-#### 5. Проверка журналов
-Убедитесь в успешном старте бота и связанных служб:
+### 5. Проверьте логи
 ```bash
 docker compose logs -f bot
 ```
 
 ---
 
-## ⚙️ Конфигурация (Environment Variables)
+## 💻 Локальный запуск для разработки
 
-Параметры считываются классом `Settings` из `bot/config.py` на базе `pydantic-settings`:
+Для запуска тестов или локальной отладки без Docker:
 
-| Переменная | Тип | По умолчанию | Назначение |
-| :--- | :---: | :---: | :--- |
-| `BOT_TOKEN` | `str` | `""` (*Обязательно*) | Токен авторизации Telegram Bot API от `@BotFather`. |
-| `WARP_PROXY_URL` | `str` | `socks5://warp:1080` | URL SOCKS5-прокси контейнера Cloudflare WARP. |
-| `MAX_VIDEO_SIZE_MB` | `int` | `45` | Пороговый размер видеофайла в МБ, свыше которого запускается сжатие FFmpeg. |
-| `RATE_LIMIT_PER_MINUTE` | `int` | `5` | Максимальное количество ссылок, принимаемых от одного пользователя в минуту. |
-| `MAX_CONCURRENT_DOWNLOADS` | `int` | `3` | Максимальное количество одновременных сетевых загрузок (`asyncio.Semaphore`). |
-| `MAX_CONCURRENT_COMPRESSIONS` | `int` | `2` | Максимальное число параллельных процессов транскодирования FFmpeg. |
-| `USER_LANGS_PATH` | `str` | `data/user_langs.json` | Путь на диске для постоянного хранения языковых предпочтений пользователей. |
+1. **Создайте виртуальное окружение:**
+   ```bash
+   python -m venv .venv
+   # Windows:
+   .venv\Scripts\activate
+   # Linux/macOS:
+   source .venv/bin/activate
+   ```
+
+2. **Установите зависимости:**
+   ```bash
+   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
+   ```
+
+3. **Запустите линтер и тесты:**
+   ```bash
+   # Проверка линтером Ruff:
+   ruff check .
+
+   # Запуск юнит-тестов Pytest:
+   pytest -v tests/
+   ```
+
+4. **Запустите бота:**
+   Убедитесь, что в системе установлен `ffmpeg`, и запустите:
+   ```bash
+   python -m bot.main
+   ```
+
+---
+
+## ⚙️ Настройки (.env)
+
+| Параметр | По умолчанию | Описание |
+| :--- | :---: | :--- |
+| `BOT_TOKEN` | `""` | Токен бота от [@BotFather](https://t.me/BotFather) (*обязательный*) |
+| `WARP_PROXY_URL` | `socks5://warp:1080` | Адрес прокси Cloudflare WARP для обхода блокировок |
+| `MAX_VIDEO_SIZE_MB` | `45` | Порог размера видео, выше которого включается сжатие через FFmpeg |
+| `TELEGRAM_MAX_SIZE_MB`| `50` | Максимальный размер видеофайла для отправки в Telegram |
+| `RATE_LIMIT_PER_MINUTE` | `5` | Максимальное число запросов в минуту от одного пользователя |
+| `MAX_CONCURRENT_DOWNLOADS` | `3` | Семафор параллельных загрузок |
+| `MAX_CONCURRENT_COMPRESSIONS` | `2` | Семафор параллельных процессов FFmpeg |
+| `DOWNLOAD_TIMEOUT_SECONDS` | `180` | Общий таймаут ожидания загрузки (`asyncio.wait_for`) |
+| `MAX_TIKWM_VIDEO_SIZE_MB` | `100` | Лимит размера видео при потоковом чтении из TikWM |
+| `MAX_YOUTUBE_DURATION_SECONDS` | `600` | Лимит длительности роликов YouTube (10 минут) |
+| `COOKIES_FILE_PATH` | `cookies.txt` | Путь к файлу cookies для yt-dlp |
+| `USER_LANGS_PATH` | `data/user_langs.json` | Файл сохранения выбранного языка пользователей |
 
 ---
 
 ## 🔄 CI/CD пайплайн
 
-В проекте настроен автоматический пайплайн сборки и доставки на базе GitHub Actions (`.github/workflows/deploy.yml`):
+Пайплайн настроен в `.github/workflows/deploy.yml`:
 
 ```mermaid
 flowchart LR
-    PushTest["Push в ветку test / PR"] --> TestJob["Job: test<br/>Python 3.12 + compileall"]
-    PushMain["Push в ветку main"] --> TestJob
-    TestJob --> BuildJob["Job: build<br/>Multi-arch Docker Buildx<br/>linux/amd64 + linux/arm64<br/>Публикация в ghcr.io"]
-    BuildJob --> DeployJob["Job: deploy<br/>Копирование docker-compose.yml по SCP<br/>SSH на сервер ➔ pull и compose up -d<br/>docker image prune -f"]
+    PushPR["Push в test / PR в main"] --> TestJob["1. Тестирование<br/>Ruff линтер + Pytest (15 тестов)"]
+    PushMain["Push в main"] --> TestJob
+    TestJob --> BuildJob["2. Сборка Docker Buildx<br/>Multi-arch: amd64 / arm64<br/>Публикация в GHCR"]
+    BuildJob --> DeployJob["3. Автодеплой по SSH<br/>SCP compose-файла + pull + up -d"]
 ```
 
-### Этапы работы пайплайна:
-1. **Тестирование (`test`)**:
-   - Срабатывает при пуше в ветки `main`, `test` и создании Pull Request в ветку `main`.
-   - Разворачивает Python 3.12 с кэшированием pip.
-   - Выполняет компиляцию байткода `python -m compileall bot` для выявления синтаксических ошибок и некорректных импортов.
-2. **Сборка образов (`build`)**:
-   - Выполняется строго при пуше в `main` после успешного прохождения шага `test`.
-   - Инициализирует эмуляторы QEMU и движок Docker Buildx.
-   - Собирает мультиплатформенный Docker-образ под архитектуры `linux/amd64` и `linux/arm64`.
-   - Публикует образы с тегами `:latest` и `:${{ github.sha }}` в GitHub Container Registry (`ghcr.io/welcomeforalone/shrt-tt-reels`).
-3. **Автоматический деплой (`deploy`)**:
-   - Передает `docker-compose.yml` на целевой сервер через `appleboy/scp-action`.
-   - Подключается по SSH (`appleboy/ssh-action`), авторизуется в `ghcr.io`, подтягивает свежий образ `docker compose pull bot`, перезапускает службы `docker compose up -d` и очищает старые слои командой `docker image prune -f`.
-   - Очередь деплоя изолирована (`group: deploy`, `cancel-in-progress: false`), что исключает наложение деплоев друг на друга.
+1. **Job `test`**:
+   - Запускается на каждый push в ветки `main`, `test` и pull-реквесты.
+   - Запускает `ruff check .` для проверки стиля и возможных ошибок.
+   - Запускает `pytest tests/` (15 тестов: валидация ссылок, роутинг хостов, rate limiter, переводы, расчет размеров).
+2. **Job `build`**:
+   - Запускается только при пуше в `main` после успешных тестов.
+   - Собирает multi-arch образ (`linux/amd64`, `linux/arm64`) через Docker Buildx и публикует в GitHub Container Registry (`ghcr.io`).
+3. **Job `deploy`**:
+   - Копирует `docker-compose.yml` на боевой сервер через SCP и выполняет перезапуск контейнера по SSH. Сторонние Actions зафиксированы по commit SHA для защиты доступа к SSH-ключам.
 
 ---
 
-## 📂 Структура репозитория
+## 📂 Структура проекта
 
 ```
 shrt-tt-reels/
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml          # Пайплайн GitHub Actions CI/CD
+│       └── deploy.yml          # GitHub Actions CI/CD (Ruff + Pytest + Docker + Deploy)
 ├── bot/
 │   ├── backends/
-│   │   ├── instagram.py        # Загрузчик Instagram и точка подключения внешних API
-│   │   ├── tiktok.py           # Клиент API tikwm.com, парсер фотоальбомов и очистка
-│   │   └── youtube.py          # Бэкенд yt-dlp, интеграция PO-токенов и изоляция cookies
-│   ├── config.py               # Настройки приложения на базе Pydantic Settings
-│   ├── downloader.py           # Маршрутизатор платформ (паттерн Chain of Responsibility)
-│   ├── handlers.py             # Обработчики команд, сообщений и колбэков aiogram 3
-│   ├── i18n.py                 # Двуязычная локализация и атомарная запись на диск
-│   ├── main.py                 # Точка входа, цикл поллинга и корректное завершение
-│   └── utils.py                # Защита от SSRF, семафоры, рейт-лимитер и сжатие FFmpeg
-├── data/                       # Смонтированная директория для сохранения данных
-│   └── user_langs.json         # Сохраненные языки пользователей
-├── .dockerignore               # Исключения контекста сборки Docker
-├── .env.example                # Шаблон конфигурационных переменных
-├── .gitignore                  # Исключения системы контроля версий Git
-├── cookies.txt                 # Файл cookies в формате Netscape для YouTube
-├── docker-compose.yml          # Оркестрация стека (bot + warp + bgutil-pot)
-├── Dockerfile                  # Защищенный образ контейнера с непривилегированным пользователем
-├── README.md                   # Англоязычная документация
-├── README.ru.md                # Русскоязычная документация (текущий файл)
-└── requirements.txt            # Зависимости Python
+│   │   ├── instagram.py        # Бэкенд Instagram Reels (yt-dlp + WARP)
+│   │   ├── tiktok.py           # Бэкенд TikTok (tikwm.com API: видео и фото)
+│   │   └── youtube.py          # Бэкенд YouTube (yt-dlp + PO-токены + WARP + cookies)
+│   ├── config.py               # Настройки через Pydantic Settings
+│   ├── downloader.py           # Роутер платформ по hostname
+│   ├── handlers.py             # Обработчики команд и сообщений aiogram
+│   ├── i18n.py                 # Двуязычная локализация (RU/EN) и сохранение языка
+│   ├── main.py                 # Точка входа, инициализация и graceful shutdown
+│   └── utils.py                # Rate limiter, валидация URL, семафоры и FFmpeg
+├── tests/
+│   ├── __init__.py
+│   └── test_bot.py             # 15 юнит-тестов (Pytest)
+├── .dockerignore
+├── .env.example                # Шаблон переменных окружения
+├── .gitignore
+├── docker-compose.yml          # Запуск бота, Cloudflare WARP и bgutil-pot
+├── Dockerfile                  # Контейнер на python:3.12-slim с ffmpeg и botuser
+├── pyproject.toml              # Конфигурация инструментов (Ruff, Pytest)
+├── README.md                   # Английская документация
+├── README.ru.md                # Русская документация
+├── requirements.txt            # Зафиксированные продакшн-зависимости
+└── requirements-dev.txt        # Зависимости для тестов и линтера
 ```
 
 ---
 
 ## 📄 Лицензия
 
-Проект распространяется под условиями открытой лицензии [MIT License](LICENSE).
+Проект распространяется под открытой лицензией [MIT](LICENSE).

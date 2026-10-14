@@ -1,6 +1,6 @@
 services:
   warp:
-    image: caomingjun/warp
+    image: caomingjun/warp:latest
     container_name: warp_proxy
     restart: always
     cap_add:
@@ -41,7 +41,7 @@ services:
     networks:
       - bot_network
     volumes:
-      - ./cookies.txt:/home/botuser/app/cookies.txt
+      - ./cookies.txt:/home/botuser/app/cookies.txt:ro
       - ./data:/home/botuser/app/data
     logging:
       driver: "json-file"

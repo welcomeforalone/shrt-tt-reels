@@ -23,8 +23,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: python -m compileall bot
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Lint with Ruff
+        run: ruff check .
+      - name: Run Pytest
+        run: pytest -v tests/
 
   build:
     needs: test
@@ -63,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Copy compose file to server
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@917f8b81dfb194d97cbab059ffcc6a12b9a7c369 # v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -71,7 +77,7 @@ jobs:
           source: docker-compose.yml
           target: /home/ubuntu/shrt-tt-reels
       - name: Pull image and restart
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@0548b260d2e85a6cb2b5fd0a4f5b5f8c6ebf21ec # v1.2.0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_USER: ${{ github.actor }}

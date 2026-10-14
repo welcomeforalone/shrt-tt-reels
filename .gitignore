@@ -16,8 +16,9 @@ cookies.txt
 data/
 user_langs.json
 
-# Custom files
-repomix-output.xml
+# Tests & Linters
+.pytest_cache/
+.ruff_cache/
 
 # Python
 __pycache__/

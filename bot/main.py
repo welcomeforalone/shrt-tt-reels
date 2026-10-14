@@ -1,10 +1,11 @@
 import asyncio
 import logging
+
 from aiogram import Bot, Dispatcher
 
+from bot.backends.tiktok import close_http_client
 from bot.config import config
 from bot.handlers import router
-from bot.backends.tiktok import close_http_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,9 +15,9 @@ logging.basicConfig(
 async def main():
     bot = Bot(token=config.bot_token)
     dp = Dispatcher()
-    
+
     dp.include_router(router)
-    
+
     logging.info("Starting bot...")
     try:
         await dp.start_polling(bot)

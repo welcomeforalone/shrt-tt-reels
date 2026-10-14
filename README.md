@@ -4,278 +4,269 @@
 [![Aiogram 3.x](https://img.shields.io/badge/aiogram-3.x-2CA5E0.svg?style=flat&logo=telegram&logoColor=white)](https://docs.aiogram.dev/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
 [![CI/CD](https://img.shields.io/badge/GitHub%20Actions-CI%2FCD-2088FF.svg?style=flat&logo=githubactions&logoColor=white)](https://github.com/welcomeforalone/shrt-tt-reels/actions)
-[![DevSecOps SSRF Protected](https://img.shields.io/badge/DevSecOps-SSRF%20Protected-brightgreen.svg?style=flat&logo=shield&logoColor=white)](#-devsecops--security-architecture)
+[![Ruff](https://img.shields.io/badge/Linter-Ruff-orange.svg?style=flat)](https://github.com/astral-sh/ruff)
+[![Tests: Pytest](https://img.shields.io/badge/Tests-Pytest-green.svg?style=flat&logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
-[![Russian Docs](https://img.shields.io/badge/Документация-Русский%20🇷🇺-blue?style=flat)](README.ru.md)
 
 🌐 **Language / Язык:** [🇺🇸 English](README.md) | [🇷🇺 Русская документация (README.ru.md)](README.ru.md)
 
----
-
-**shrt-tt-reels** is an enterprise-grade, high-throughput asynchronous Telegram bot engineered to fetch, transcode, and deliver media from **TikTok** (watermark-free HD videos and photo carousels), **Instagram Reels**, and **YouTube Shorts**. 
-
-Constructed with strict **DevSecOps** principles, the service features multi-tier Server-Side Request Forgery (SSRF) and DNS rebinding mitigation, automated anti-bot circumvention (YouTube Proof-of-Origin token generation coupled with Cloudflare WARP SOCKS5 tunneling), asynchronous concurrency throttling, memory-safe rate limiting, intelligent FFmpeg video compression, and full bilingual (EN/RU) localization.
-
----
 
 ## 📑 Table of Contents
 
-- [Architectural Blueprint](#-architectural-blueprint)
+- [How It Works (Architecture)](#-how-it-works-architecture)
 - [Key Features](#-key-features)
-  - [TikTok Backend](#1-tiktok-processing-botbackendstiktokpy)
-  - [Instagram Reels Backend](#2-instagram-reels-processing-botbackendsinstagrampy)
-  - [YouTube Shorts Backend](#3-youtube-shorts-processing-botbackendsyoutubepy)
-  - [Intelligent Video Compression](#4-intelligent-video-compression-botutilspy)
-  - [Dual-Language Localization (i18n)](#5-dual-language-localization-i18n-boti18npy)
-- [DevSecOps & Security Architecture](#-devsecops--security-architecture)
-- [Quick Start Guide](#-quick-start-guide)
-- [Configuration Reference](#-configuration-reference)
+  - [1. TikTok](#1-tiktok)
+  - [2. Instagram Reels](#2-instagram-reels)
+  - [3. YouTube Shorts](#3-youtube-shorts)
+  - [4. Adaptive Video Compression (FFmpeg)](#4-adaptive-video-compression-ffmpeg)
+  - [5. Bilingual Localization (i18n)](#5-bilingual-localization-i18n)
+  - [6. Resource Limits and Security](#6-resource-limits-and-security)
+- [Quick Start (Docker Compose)](#-quick-start-docker-compose)
+- [Local Development & Testing](#-local-development--testing)
+- [Configuration Reference (.env)](#-configuration-reference-env)
 - [CI/CD Pipeline](#-cicd-pipeline)
-- [Repository Layout](#-repository-layout)
+- [Repository Structure](#-repository-structure)
 - [License](#-license)
 
 ---
 
-## 🏗️ Architectural Blueprint
+## 🏗️ How It Works (Architecture)
 
-The application employs an asynchronous pipeline driven by `aiogram 3.x` and `asyncio`, enforcing defensive perimeter checks prior to routing requests through a Chain of Responsibility platform orchestrator:
+When a user sends a media link to the bot, it goes through the following pipeline:
 
 ```mermaid
 flowchart TD
-    User([Telegram User]) -->|1. Sends Link / URL| Bot[Telegram Bot Engine<br/>aiogram 3.x + asyncio]
+    User([Telegram User]) -->|1. Sends URL| Bot[Bot Handler<br/>aiogram 3.x]
 
-    subgraph SecurityLayer ["1. DevSecOps & Security Layer (bot/utils.py)"]
-        SSRF["SSRF & DNS Rebinding Filter<br/>Scheme check + Blocklist + socket.getaddrinfo + ipaddress"]
-        RateLimit["Sliding Window Rate Limiter<br/>5 req/min per user + Memory Leak GC sweep"]
-        Semaphores["Asyncio Semaphores<br/>Downloads: max 3 | Transcoding: max 2"]
+    subgraph Defense ["1. Protection & Resource Limits (bot/utils.py)"]
+        RateLimit["Rate Limiter<br/>Sliding window requests/min per user"]
+        URLCheck["Basic URL Validation<br/>Scheme check + blocks private IPs & internal docker hosts"]
+        Semaphores["asyncio.Semaphore<br/>Max 3 concurrent downloads | Max 2 FFmpeg compressions"]
+        Timeout["asyncio.wait_for<br/>Overall download timeout 180s"]
     end
 
-    Bot --> SSRF
-    SSRF -->|Valid & Public URL| RateLimit
-    SSRF -->|Blocked Host/IP/Scheme| RejectSSRF["Reject: unsafe_url"]
-    RateLimit -->|Within Quota| Semaphores
-    RateLimit -->|Exceeded Limit| RejectLimit["Reject: rate_limit"]
+    Bot --> RateLimit
+    RateLimit -->|Exceeded| RejectRate["Reject: rate limit exceeded"]
+    RateLimit -->|OK| URLCheck
+    URLCheck -->|Unsafe URL| RejectURL["Reject: invalid or forbidden link"]
+    URLCheck -->|OK| Semaphores
+    Semaphores --> Timeout
 
-    subgraph RouterLayer ["2. Platform Router / Chain of Responsibility (bot/downloader.py)"]
-        Semaphores --> Router{"Platform Detect<br/>(Regex Pattern)"}
-        Router -->|TikTok URL| TikWM["tikwm.com API (bot/backends/tiktok.py)<br/>Watermark-free HD / Photos"]
-        Router -->|Instagram URL| IGAPI["Public API Hook (bot/backends/instagram.py)"]
-        Router -->|YouTube / Fallback| YTDLPRouter["yt-dlp Engine (bot/backends/youtube.py)"]
-        TikWM -.->|API Fallback (if not /photo/)| YTDLPRouter
-        IGAPI -.->|API Fallback| YTDLPRouter
+    subgraph Routing ["2. Platform Routing & Download (bot/downloader.py)"]
+        Timeout --> Detect{"Parse hostname<br/>(urlsplit)"}
+        Detect -->|tiktok.com| TikWM["tikwm.com API (bot/backends/tiktok.py)<br/>Watermark-free video or photo album"]
+        Detect -->|instagram.com| IG["yt-dlp + WARP proxy (bot/backends/instagram.py)"]
+        Detect -->|youtube.com / youtu.be| YT["yt-dlp + PO-token + WARP (bot/backends/youtube.py)"]
+        Detect -->|Other domains| Fallback["yt-dlp fallback"]
+        TikWM -.->|Fallback on API error| Fallback
     end
 
-    subgraph InfraLayer ["3. Anti-Bot & Network Infrastructure (docker-compose.yml)"]
-        YTDLPRouter --> CookieClone["Thread-Safe Cookie Isolation<br/>cookies.txt ➔ {uuid}_cookies.txt"]
-        CookieClone --> POToken["Proof-of-Origin (PO) Token Generator<br/>bgutil-pot container (:4416) via bot_network"]
-        POToken --> WARPProxy["Egress Traffic Tunneling<br/>Cloudflare WARP (socks5://warp:1080)"]
-        WARPProxy -.->|Exponential Backoff Exhausted| DirectConn["Direct Egress Fallback (No Proxy)"]
+    subgraph MediaProcess ["3. Media Processing & Delivery (bot/handlers.py)"]
+        TikWM -->|Photo Carousel| Chunker["Group into albums of up to 10 photos<br/>MediaGroupBuilder"]
+        IG & YT & Fallback & TikWM -->|Video File| SizeCheck{"File size > 45 MB?"}
+        SizeCheck -->|No (<= 45 MB)| Send["Send to Telegram"]
+        SizeCheck -->|Yes (> 45 MB)| FFmpeg["FFmpeg: dynamic bitrate under 50 MB<br/>CRF 28, max 720p/1080p, 180s timeout"]
+        FFmpeg --> Send
+        Chunker --> Send
     end
 
-    subgraph MediaLayer ["4. Media Processing & Delivery (bot/handlers.py, bot/utils.py)"]
-        TikWM -->|Photo Carousel| PhotoChunker["Carousel Chunker<br/>Batches of 10 for MediaGroupBuilder"]
-        WARPProxy & DirectConn & TikWM -->|Video File| SizeCheck{"File Size > 45 MB?<br/>(MAX_VIDEO_SIZE_MB)"}
-        SizeCheck -->|No (<= 45 MB)| Dispatcher["Telegram Delivery Dispatcher"]
-        SizeCheck -->|Yes (> 45 MB)| FFmpeg["FFmpeg Transcoder<br/>libx264, veryfast, crf 28, maxrate 2M<br/>180s Timeout & SIGKILL Guard"]
-        FFmpeg --> FinalCheck{"Post-Compression <= 50 MB?"}
-        FinalCheck -->|Yes| Dispatcher
-        FinalCheck -->|No| RejectSize["Error: Video exceeds Telegram 50 MB limit"]
-        PhotoChunker --> Dispatcher
-    end
-
-    Dispatcher -->|answer_video / answer_photo / answer_media_group| TelegramAPI["Telegram Cloud API"]
-    TelegramAPI --> User
-    Dispatcher --> Cleanup["Guaranteed Resource Cleanup<br/>finally blocks prune temp files, chunks & cookies"]
+    Send --> User
+    Send --> Cleanup["finally block: purge temp files from disk"]
 ```
 
 ---
 
 ## ✨ Key Features
 
-### 1. TikTok Processing (`bot/backends/tiktok.py`)
-- **Watermark-Free Video Extraction**: Queries `https://www.tikwm.com/api/` (`hd=1`) using an optimized, long-lived `httpx.AsyncClient` with custom browser headers.
-- **Photo Carousel Support**: Detects image sets (`images` array) and downloads each slide sequentially.
-- **Telegram Album Chunking**: Splices multi-photo albums into chunks of up to 10 images using `MediaGroupBuilder`, guaranteeing compliance with Telegram Bot API constraints. Single images are sent via `answer_photo`.
-- **Atomic Disk Rollback**: If network transport interrupts carousel downloads, all previously written partial images (`_{index}.jpg`) are immediately unlinked in exception handlers.
-- **Safe Fallback Guard**: If `tikwm.com` returns non-zero status, fallback to `yt-dlp` is skipped for URLs containing `/photo/` to prevent known parser crashes.
+### 1. TikTok
+- **Watermark-Free Video**: Queries the unofficial `tikwm.com` public API.
+- **Streaming Download**: Video is streamed in 64 KB chunks with content-length validation and size limits to avoid high memory consumption.
+- **Photo Carousel Albums**: Automatically splits photo carousels into albums of up to 10 images using `MediaGroupBuilder` in compliance with Telegram Bot API restrictions.
+- **Fallback to yt-dlp**: If `tikwm.com` is unreachable, the bot falls back to `yt-dlp` (except for `/photo/` links, as yt-dlp does not parse TikTok photo slides).
 
-### 2. Instagram Reels Processing (`bot/backends/instagram.py`)
-- **Extensible Chain of Responsibility**: Exposes a clean interface (`download_via_public_api`) for proprietary or third-party Instagram scrapers.
-- **Automated Fallback**: Automatically cascades to `yt-dlp` routed over Cloudflare WARP residential-range IP addresses.
+### 2. Instagram Reels
+- **yt-dlp Backend**: Instagram lacks a free, public API without Meta Graph API authentication. Reels are retrieved through `yt-dlp` routed via Cloudflare WARP.
 
-### 3. YouTube Shorts Processing (`bot/backends/youtube.py`)
-- **YouTube Bot Bypass (PO Token)**: Integrates `bgutil-ytdlp-pot-provider` plugin pointing to a dedicated container (`http://bgutil-pot:4416`), acquiring cryptographic Proof-of-Origin visitor tokens to bypass bot challenges.
-- **Cloudflare WARP Tunneling**: Routes YouTube video downloads through an internal SOCKS5 proxy (`socks5://warp:1080`), bypassing IP-reputation bans and regional blocks.
-- **Thread-Safe Cookie Isolation**: Clones `/home/botuser/app/cookies.txt` into an isolated, per-download file (`{base_path}_cookies.txt`). This prevents race conditions and file lock collisions when concurrent worker coroutines execute `yt-dlp`.
-- **Exponential Backoff & Direct Fallback**: Performs retry attempts with exponential delay (`2 ** attempt` seconds) over the proxy. If SOCKS5 tunnel fails consecutively, it executes a direct fallback download without a proxy as a final resort.
-- **Partial File Purge**: Glob-based cleanup removes all temporary artifacts (`{base_path}.*`, `.part`, `.ytdl`) upon completion or failure.
+### 3. YouTube Shorts
+- **Bot Detection Bypass (PO-Tokens + WARP)**: YouTube frequently blocks data-center VPS IPs (`403` / `"Sign in to confirm you're not a bot"`). To mitigate this, `docker-compose.yml` runs a local Rust `bgutil-pot` container that generates Proof-of-Origin visitor tokens, while outbound traffic is proxied through Cloudflare WARP.
+- **Duration & Resolution Constraints**: To prevent long freezes on multi-hour streams or 4K videos, `yt-dlp` enforces a duration limit (`max_youtube_duration_seconds=600`) and restricts video height to 1080p, prioritizing MP4/H.264.
+- **Thread-Safe Cookie Isolation**: If a `cookies.txt` file is mounted, the bot copies it to an isolated per-download temporary file to eliminate race conditions during concurrent downloads.
 
-### 4. Intelligent Video Compression (`bot/utils.py`)
-- **Adaptive Size Detection**: Automatically checks file size against `MAX_VIDEO_SIZE_MB` (default: 45 MB). Files exceeding this threshold are routed to FFmpeg.
-- **High-Efficiency Transcoding**:
-  ```bash
-  ffmpeg -y -i <input> -vcodec libx264 -preset veryfast -crf 28 -maxrate 2M -bufsize 4M -vf scale=-2:'min(1280,ih)' -stats -acodec copy <output>
-  ```
-  - Constrains resolution to max 720p/1080p (`scale=-2:'min(1280,ih)'`) while preserving aspect ratio.
-  - Fixes maximum bitrate at 2 Mbps with a 4 MB buffer to strictly guarantee that output fits under Telegram's 50 MB threshold.
-  - Copies audio streams verbatim (`-acodec copy`) to conserve CPU cycles.
-- **Watchdog Timeout Guard**: Wraps execution in `asyncio.wait_for(..., timeout=180)`. If transcoding exceeds 3 minutes, the subprocess is forcibly killed with `process.kill()` to protect CPU resources, and leftover partial files are deleted.
+### 4. Adaptive Video Compression (FFmpeg)
+- The Telegram Bot API restricts bots to sending media files up to 50 MB.
+- When an extracted video exceeds 45 MB, the bot invokes `ffmpeg`:
+  - `ffprobe` retrieves the video's exact duration.
+  - Target bitrate is computed dynamically so the compressed video fits within 46–48 MB.
+  - Resolution is scaled down to a maximum of 720p/1080p (`scale=-2:'min(1280,ih)'`).
+  - The process is protected by `asyncio.wait_for(..., timeout=180)`: if transcoding hangs, the subprocess is terminated and partial files are unlinked.
 
-### 5. Dual-Language Localization (i18n) (`bot/i18n.py`)
-- **Supported Locales**: English (`en`) and Russian (`ru`).
-- **Seamless Switching**: Users can change language anytime via `/lang`, `/language`, or directly in the `/start` menu using inline buttons (`InlineKeyboardMarkup`).
-- **Smart Locale Auto-Detection**: Inspects `user.language_code`; telegram users with `ru`, `be` (Belarusian), or `uk` (Ukrainian) locales are automatically routed to Russian.
-- **Atomic File Persistence**: Saves preferences to `data/user_langs.json` using an atomic write-replace pattern (`data/user_langs.json.tmp` ➔ `os.replace`), preventing JSON corruption during sudden container shutdowns.
-- For Russian documentation, see [README.ru.md](README.ru.md).
+### 5. Bilingual Localization (i18n)
+- Supports Russian (`ru`) and English (`en`).
+- Automatically detects the user's client language (`ru`, `be`, `uk` -> Russian; others -> English).
+- Language can be switched anytime via `/lang` or inline buttons.
+- Selections are persisted atomically (`user_langs.json.tmp` -> `os.replace`) to guard against JSON corruption during container stops.
 
----
-
-## 🛡️ DevSecOps & Security Architecture
-
-Security is baked into the foundation of the repository to prevent abuse, resource exhaustion, and lateral network traversal:
-
-| Security Vector | Implementation Detail | Location |
-| :--- | :--- | :--- |
-| **SSRF Prevention** | Only `http` and `https` schemes permitted. Validates parsed hostname against a blocklist of Docker service aliases (`localhost`, `warp`, `warp_proxy`, `bgutil-pot`, `bgutil_pot`, `bot`, `tiktok_downloader_bot`) and internal TLDs (`.local`, `.internal`, `.localhost`, `.lan`). | `bot/utils.py` |
-| **DNS Rebinding Guard** | Executes `socket.getaddrinfo(hostname, None)` and validates every resolved IP address using Python's `ipaddress` module. Explicitly rejects private (`RFC 1918`), loopback (`127.0.0.0/8`), link-local (`169.254.0.0/16`), multicast, reserved, and unspecified IPs. | `bot/utils.py` |
-| **Zero Host Exposure** | The `warp` proxy container and `bgutil-pot` service publish **no ports to the host OS**. They communicate exclusively across the internal Docker bridge network (`bot_network`). | `docker-compose.yml` |
-| **Least Privilege Execution** | Container drops `root` rights and runs strictly as an unprivileged user `botuser` (UID 1000) with a restricted home directory. | `Dockerfile` |
-| **Concurrency Throttling** | Heavy async operations are gated by `asyncio.Semaphore`: limits parallel downloads (`MAX_CONCURRENT_DOWNLOADS=3`) and CPU-intensive FFmpeg encodings (`MAX_CONCURRENT_COMPRESSIONS=2`). | `bot/utils.py` |
-| **Memory-Safe Rate Limiter** | Sliding window rate limiter (default: 5 requests/min per user). Prunes stale entries and performs a dictionary garbage-collection sweep whenever active tracking entries exceed 500. | `bot/utils.py` |
-| **Disk Exhaustion Defense** | `yt-dlp` enforces `'max_filesize': 150MB` to prevent malicious or accidental downloads of multi-gigabyte streams. Temporary files are pruned inside `finally` blocks. | `bot/backends/youtube.py` |
-| **Graceful Session Teardown** | Signals (`SIGINT`, `SIGTERM`) cleanly close `bot.session` and shutdown long-lived `httpx.AsyncClient` connection pools. | `bot/main.py` |
+### 6. Resource Limits and Security
+- **Rate Limiting**: Sliding window rate limiter (default: 5 requests/minute per user) that runs **before** any DNS or network operations.
+- **Basic SSRF Check**: Enforces `http`/`https` schemes and rejects `localhost`, private subnets (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.0/8`), and internal Docker service names (`warp`, `bgutil-pot`). Domain resolution is offloaded to a worker thread with a 3-second timeout.
+- **Concurrency Throttling (`asyncio.Semaphore`)**: Restricts parallel downloads (max 3) and FFmpeg encodings (max 2) to maintain responsiveness on a small VPS.
+- **Download Timeout**: Global 180s `asyncio.wait_for` timeout prevents hung downloads from holding semaphore slots indefinitely.
+- **Least Privilege**: The Docker container executes as an unprivileged user `botuser` (UID 1000).
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Quick Start (Docker Compose)
 
-### Prerequisites
-- Host machine running Linux, macOS, or Windows with **Docker** and **Docker Compose v2+** installed.
-- Telegram Bot Token obtained from [@BotFather](https://t.me/BotFather).
+The recommended deployment method:
 
-### Step-by-Step Installation
-
-#### 1. Clone the Repository
+### 1. Clone the repository
 ```bash
 git clone https://github.com/welcomeforalone/shrt-tt-reels.git
 cd shrt-tt-reels
 ```
 
-#### 2. Configure Environment Variables
-Create your local environment file from the provided template:
+### 2. Configure environment
+Copy the template:
 ```bash
 cp .env.example .env
 ```
-Edit `.env` and set your Telegram Bot token:
+Add your Telegram Bot API token from [@BotFather](https://t.me/BotFather):
 ```ini
 BOT_TOKEN=1234567890:AAH_your_telegram_bot_token_here
-WARP_PROXY_URL=socks5://warp:1080
-MAX_VIDEO_SIZE_MB=45
-RATE_LIMIT_PER_MINUTE=5
-MAX_CONCURRENT_DOWNLOADS=3
-MAX_CONCURRENT_COMPRESSIONS=2
-USER_LANGS_PATH=data/user_langs.json
 ```
 
-#### 3. Initialize Cookies File
-To avoid Docker volume mounting errors and enable authenticated YouTube downloading:
+### 3. Initialize cookies file (Optional)
 ```bash
 touch cookies.txt
 ```
-> [!TIP]
-> If YouTube enforces strict bot verification, export cookies from your web browser in Netscape format and paste them into `cookies.txt`.
+*(If YouTube requires bot challenges, export cookies in Netscape format from your browser into this file).*
 
-#### 4. Launch Services
-Spin up the multi-container stack in detached mode:
+### 4. Launch containers
 ```bash
 docker compose up -d --build
 ```
 
-#### 5. Verify Operation
-Inspect container logs to verify that the bot, Cloudflare WARP, and PO token generator initialized correctly:
+### 5. Inspect logs
 ```bash
 docker compose logs -f bot
 ```
 
 ---
 
-## ⚙️ Configuration Reference
+## 💻 Local Development & Testing
 
-All settings are managed via `bot/config.py` using `pydantic-settings` and can be overridden via `.env`:
+To run tests and debug locally without Docker:
 
-| Parameter | Type | Default Value | Description |
-| :--- | :---: | :---: | :--- |
-| `BOT_TOKEN` | `str` | `""` (*Required*) | Telegram Bot API token issued by `@BotFather`. |
-| `WARP_PROXY_URL` | `str` | `socks5://warp:1080` | SOCKS5 proxy endpoint provided by the WARP service container. |
-| `MAX_VIDEO_SIZE_MB` | `int` | `45` | File size limit in megabytes; videos above this trigger FFmpeg transcoding. |
-| `RATE_LIMIT_PER_MINUTE` | `int` | `5` | Maximum download requests allowed per individual user per minute. |
-| `MAX_CONCURRENT_DOWNLOADS` | `int` | `3` | Maximum simultaneous download operations across all users (`asyncio.Semaphore`). |
-| `MAX_CONCURRENT_COMPRESSIONS` | `int` | `2` | Maximum concurrent FFmpeg encoding jobs across the entire instance. |
-| `USER_LANGS_PATH` | `str` | `data/user_langs.json` | Filesystem path for atomic persistence of user language preferences. |
+1. **Create and activate a virtual environment:**
+   ```bash
+   python -m venv .venv
+   # Windows:
+   .venv\Scripts\activate
+   # Linux/macOS:
+   source .venv/bin/activate
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
+   ```
+
+3. **Run linter and tests:**
+   ```bash
+   # Code check with Ruff:
+   ruff check .
+
+   # Run test suite with Pytest:
+   pytest -v tests/
+   ```
+
+4. **Start the bot locally:**
+   Ensure `ffmpeg` is installed on your host, then run:
+   ```bash
+   python -m bot.main
+   ```
+
+---
+
+## ⚙️ Configuration Reference (.env)
+
+| Variable | Default | Description |
+| :--- | :---: | :--- |
+| `BOT_TOKEN` | `""` | Telegram Bot token from [@BotFather](https://t.me/BotFather) (*required*) |
+| `WARP_PROXY_URL` | `socks5://warp:1080` | Cloudflare WARP SOCKS5 proxy endpoint |
+| `MAX_VIDEO_SIZE_MB` | `45` | File size threshold triggering FFmpeg compression |
+| `TELEGRAM_MAX_SIZE_MB` | `50` | Maximum upload limit allowed by Telegram Bot API |
+| `RATE_LIMIT_PER_MINUTE` | `5` | Request quota per user per minute |
+| `MAX_CONCURRENT_DOWNLOADS` | `3` | Concurrency semaphore for media downloads |
+| `MAX_CONCURRENT_COMPRESSIONS` | `2` | Concurrency semaphore for FFmpeg compression |
+| `DOWNLOAD_TIMEOUT_SECONDS` | `180` | Global download timeout (`asyncio.wait_for`) |
+| `MAX_TIKWM_VIDEO_SIZE_MB` | `100` | Stream size limit for TikWM downloads |
+| `MAX_YOUTUBE_DURATION_SECONDS` | `600` | Duration filter rejecting videos longer than 10 minutes |
+| `COOKIES_FILE_PATH` | `cookies.txt` | Path to optional YouTube cookies file |
+| `USER_LANGS_PATH` | `data/user_langs.json` | Path to persistent user language preferences |
 
 ---
 
 ## 🔄 CI/CD Pipeline
 
-The project features a continuous integration and deployment pipeline configured in `.github/workflows/deploy.yml`:
+Configured in `.github/workflows/deploy.yml`:
 
 ```mermaid
 flowchart LR
-    PushTest["Push to test / PR"] --> TestJob["Job: test<br/>Python 3.12 + compileall"]
+    PushPR["Push to test / PR to main"] --> TestJob["1. Testing<br/>Ruff Linter + Pytest (15 tests)"]
     PushMain["Push to main"] --> TestJob
-    TestJob --> BuildJob["Job: build<br/>Multi-arch Docker Buildx<br/>linux/amd64 + linux/arm64<br/>Push to ghcr.io"]
-    BuildJob --> DeployJob["Job: deploy<br/>SCP docker-compose.yml<br/>SSH to Host ➔ pull & compose up -d<br/>docker image prune -f"]
+    TestJob --> BuildJob["2. Docker Buildx<br/>Multi-arch: amd64 / arm64<br/>Push to GHCR"]
+    BuildJob --> DeployJob["3. Deploy via SSH<br/>SCP compose file + pull + up -d"]
 ```
 
-### Pipeline Workflow Details:
-1. **Testing Stage (`test`)**:
-   - Executes on pushes to `main`, `test`, and pull requests targeting `main`.
-   - Sets up Python 3.12 environment with cached dependencies.
-   - Runs `python -m compileall bot` to detect syntax defects, broken imports, and typing regressions.
-2. **Container Build Stage (`build`)**:
-   - Triggers exclusively on pushes to `main` upon successful testing.
-   - Employs Docker Buildx and QEMU to cross-compile multi-architecture images for `linux/amd64` and `linux/arm64`.
-   - Authenticates and publishes tagged images (`latest` and `${{ github.sha }}`) to GitHub Container Registry (`ghcr.io/welcomeforalone/shrt-tt-reels`).
-3. **Automated Production Deployment (`deploy`)**:
-   - Copies `docker-compose.yml` to the production server via `appleboy/scp-action`.
-   - Connects over SSH via `appleboy/ssh-action`, logs into `ghcr.io`, pulls the updated image, executes `docker compose up -d`, and prunes dangling images with `docker image prune -f`.
-   - Concurrency is pinned (`group: deploy`, `cancel-in-progress: false`) to prevent race conditions during updates.
+1. **Job `test`**:
+   - Triggers on every push to `main` and `test`, and pull requests targeting `main`.
+   - Runs `ruff check .` to enforce clean code and catch syntax or import defects.
+   - Runs `pytest tests/` (15 unit tests covering SSRF checks, hostname parsing, rate limiting, and i18n).
+2. **Job `build`**:
+   - Triggers on push to `main` following successful tests.
+   - Builds multi-architecture container images (`linux/amd64`, `linux/arm64`) using Docker Buildx and pushes to GitHub Container Registry (`ghcr.io`).
+3. **Job `deploy`**:
+   - Transfers `docker-compose.yml` to the production server via SCP and restarts services over SSH. External Actions are pinned to full commit SHAs to protect SSH credentials.
 
 ---
 
-## 📂 Repository Layout
+## 📂 Repository Structure
 
 ```
 shrt-tt-reels/
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml          # GitHub Actions CI/CD pipeline
+│       └── deploy.yml          # GitHub Actions CI/CD (Ruff + Pytest + Docker + Deploy)
 ├── bot/
 │   ├── backends/
-│   │   ├── instagram.py        # Instagram download backend & fallback hook
-│   │   ├── tiktok.py           # tikwm.com client, carousel parser & cleanup
-│   │   └── youtube.py          # yt-dlp backend, PO token integration & cookie isolation
-│   ├── config.py               # Pydantic Settings application configuration
-│   ├── downloader.py           # Platform router & Chain of Responsibility orchestrator
-│   ├── handlers.py             # Aiogram 3 message, command & callback routers
-│   ├── i18n.py                 # Bilingual translation engine & atomic disk storage
-│   ├── main.py                 # Bot initialization, polling loop & graceful shutdown
-│   └── utils.py                # SSRF guard, rate limiter, semaphores & FFmpeg compressor
-├── data/                       # Volume-mounted persistent data directory
-│   └── user_langs.json         # User language selections
-├── .dockerignore               # Container build exclusions
-├── .env.example                # Sample environment variables template
-├── .gitignore                  # Git repository exclusion rules
-├── cookies.txt                 # Optional Netscape YouTube cookie file
-├── docker-compose.yml          # Multi-container orchestration (bot + warp + bgutil-pot)
-├── Dockerfile                  # Multi-stage hardened unprivileged Python container
+│   │   ├── instagram.py        # Instagram Reels backend (yt-dlp + WARP)
+│   │   ├── tiktok.py           # TikTok backend (tikwm.com API: video & photos)
+│   │   └── youtube.py          # YouTube backend (yt-dlp + PO-tokens + WARP + cookies)
+│   ├── config.py               # Pydantic Settings configuration
+│   ├── downloader.py           # Safe hostname-based platform router
+│   ├── handlers.py             # aiogram 3 message, command & callback handlers
+│   ├── i18n.py                 # Bilingual localization (RU/EN) and persistence
+│   ├── main.py                 # Application entrypoint & graceful shutdown
+│   └── utils.py                # Rate limiter, URL safety, semaphores & FFmpeg
+├── tests/
+│   ├── __init__.py
+│   └── test_bot.py             # 15 Pytest unit tests
+├── .dockerignore
+├── .env.example                # Sample environment variables
+├── .gitignore
+├── docker-compose.yml          # Bot, Cloudflare WARP and bgutil-pot service orchestration
+├── Dockerfile                  # Lightweight container on python:3.12-slim with ffmpeg and botuser
+├── pyproject.toml              # Tool configurations (Ruff, Pytest)
 ├── README.md                   # English documentation (this file)
 ├── README.ru.md                # Russian documentation
-└── requirements.txt            # Production Python package requirements
+├── requirements.txt            # Pinned production dependencies
+└── requirements-dev.txt        # Development dependencies (Ruff, Pytest)
 ```
 
 ---
 
 ## 📄 License
 
-This software is released under the terms of the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE).

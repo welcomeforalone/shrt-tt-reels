@@ -1,25 +1,49 @@
-import os
-import glob
-import shutil
 import asyncio
+import glob
 import logging
-from typing import Optional
+import os
+import shutil
+
 import yt_dlp
 
 from bot.config import config
 
 logger = logging.getLogger(__name__)
 
-MASTER_COOKIE_FILE = "/home/botuser/app/cookies.txt"
+
+def _get_cookie_file_path() -> str | None:
+    """Находит файл cookies, если он существует и не пустой."""
+    candidates = [
+        config.cookies_file_path,
+        "/home/botuser/app/cookies.txt",
+        "cookies.txt",
+    ]
+    for path in candidates:
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return path
+    return None
+
 
 def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
-    # Убираем расширение для outtmpl, чтобы yt-dlp корректно смержил в .mp4
     base_path, _ = os.path.splitext(output_path)
     outtmpl_path = f"{base_path}.%(ext)s"
     temp_cookie_path = None
 
+    def _filter_duration(info_dict, *, incomplete):
+        duration = info_dict.get('duration')
+        if duration and duration > config.max_youtube_duration_seconds:
+            return f"Video duration ({duration}s) exceeds max limit of {config.max_youtube_duration_seconds}s"
+        return None
+
+    # Ограничиваем разрешение до 1080p и отдаем приоритет mp4/h264,
+    # чтобы избежать загрузки 4K/AV1, которые перегружают CPU при сжатии
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',
+        'format': (
+            'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/'
+            'bestvideo[height<=1080]+bestaudio/'
+            'best[height<=1080]/'
+            'best'
+        ),
         'merge_output_format': 'mp4',
         'noplaylist': True,
         'extractor_args': {
@@ -29,16 +53,18 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
         },
         'socket_timeout': 30,
         'max_filesize': 150 * 1024 * 1024,
+        'match_filter': _filter_duration,
         'quiet': False,
         'no_warnings': False,
         'outtmpl': outtmpl_path,
     }
 
-    # Защита cookies.txt от гонки потоков: копируем во временный файл
-    if os.path.exists(MASTER_COOKIE_FILE) and os.path.getsize(MASTER_COOKIE_FILE) > 0:
+    # Изоляция cookies: копируем во временный файл для защиты от гонок потоков
+    master_cookie = _get_cookie_file_path()
+    if master_cookie:
         temp_cookie_path = f"{base_path}_cookies.txt"
         try:
-            shutil.copyfile(MASTER_COOKIE_FILE, temp_cookie_path)
+            shutil.copyfile(master_cookie, temp_cookie_path)
             ydl_opts['cookiefile'] = temp_cookie_path
         except Exception as e:
             logger.warning(f"Failed to copy cookies file: {e}")
@@ -62,7 +88,6 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
             _cleanup_partial_files()
             return False
 
-        # Проверяем, что итоговый файл действительно создан на диске
         return True
     except Exception as e:
         logger.warning(f"yt-dlp failed (proxy={use_proxy}): {e}")
@@ -75,14 +100,19 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
             except Exception as e:
                 logger.warning(f"Failed to remove temp cookie file {temp_cookie_path}: {e}")
 
-async def download_via_ytdlp(url: str, output_path: str, retries: int = 2) -> Optional[str]:
+
+async def download_via_ytdlp(url: str, output_path: str, retries: int = 2) -> str | None:
+    """
+    Загружает медиа через yt-dlp.
+    Сначала пытается через прокси WARP с повторами, а в случае неудачи — напрямую.
+    """
     logger.info("Trying yt-dlp via WARP proxy")
-    
+
     for attempt in range(retries):
         success = await asyncio.to_thread(_sync_yt_dlp_download, url, output_path, True)
         if success:
             return output_path
-            
+
         logger.info(f"Retrying yt-dlp WARP... attempt {attempt + 1}")
         await asyncio.sleep(2 ** attempt)
 
@@ -90,5 +120,5 @@ async def download_via_ytdlp(url: str, output_path: str, retries: int = 2) -> Op
     success = await asyncio.to_thread(_sync_yt_dlp_download, url, output_path, False)
     if success:
         return output_path
-        
+
     return None

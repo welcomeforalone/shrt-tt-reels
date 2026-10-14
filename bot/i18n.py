@@ -1,8 +1,8 @@
-import os
 import json
 import logging
-from typing import Optional, Dict
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import os
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import config
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_LANGUAGES = {"en", "ru"}
 DEFAULT_LANGUAGE = "en"
 
-TRANSLATIONS: Dict[str, Dict[str, str]] = {
+TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "welcome": (
             "👋 **Welcome!**\n\n"
@@ -33,6 +33,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "too_large_after_compress": "❌ Video is still too large for Telegram after compression.",
         "compress_failed": "❌ Failed to compress video.",
         "uploading_video": "Uploading to Telegram... 📤",
+        "download_timeout": "⏳ Download timed out. Please try again later.",
         "unexpected_error": "❌ An unexpected error occurred.",
     },
     "ru": {
@@ -56,19 +57,20 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "too_large_after_compress": "❌ Видео всё ещё превышает лимит Telegram (50 МБ) даже после сжатия.",
         "compress_failed": "❌ Ошибка при сжатии видео.",
         "uploading_video": "Отправляю видео в Telegram... 📤",
+        "download_timeout": "⏳ Время ожидания скачивания истекло. Пожалуйста, попробуйте позже.",
         "unexpected_error": "❌ Произошла непредвиденная ошибка.",
     },
 }
 
 # In-memory storage for user language preferences: user_id -> "en" | "ru"
-_user_langs: Dict[int, str] = {}
+_user_langs: dict[int, str] = {}
 
 def _load_user_langs() -> None:
     path = config.user_langs_path
     if not path or not os.path.exists(path):
         return
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, dict):
                 for uid_str, lang in data.items():
@@ -101,15 +103,15 @@ def _save_user_langs() -> None:
 # Load saved preferences at module startup
 _load_user_langs()
 
-def get_user_language(user_id: Optional[int], user_language_code: Optional[str] = None) -> str:
+def get_user_language(user_id: int | None, user_language_code: str | None = None) -> str:
     if user_id is not None and user_id in _user_langs:
         return _user_langs[user_id]
-    
+
     if user_language_code:
         code = user_language_code.lower().strip()
         if code.startswith("ru") or code.startswith("be") or code.startswith("uk"):
             return "ru"
-            
+
     return DEFAULT_LANGUAGE
 
 def set_user_language(user_id: int, lang: str) -> None:
@@ -118,14 +120,14 @@ def set_user_language(user_id: int, lang: str) -> None:
         _save_user_langs()
 
 def t(
-    key: str, 
-    user_id: Optional[int] = None, 
-    lang: Optional[str] = None, 
+    key: str,
+    user_id: int | None = None,
+    lang: str | None = None,
     fallback_lang: str = DEFAULT_LANGUAGE,
-    user_language_code: Optional[str] = None
+    user_language_code: str | None = None
 ) -> str:
     chosen_lang = lang
-    if not chosen_lang and user_id is not None:
+    if not chosen_lang and (user_id is not None or user_language_code is not None):
         chosen_lang = get_user_language(user_id, user_language_code)
     elif not chosen_lang:
         chosen_lang = fallback_lang
@@ -142,3 +144,8 @@ def get_language_keyboard() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+def get_translator(user_id: int | None = None, user_language_code: str | None = None):
+    """Возвращает функцию перевода, зафиксированную для конкретного пользователя."""
+    return lambda key, **kwargs: t(key, user_id=user_id, user_language_code=user_language_code, **kwargs)
