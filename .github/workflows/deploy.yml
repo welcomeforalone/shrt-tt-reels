@@ -2,6 +2,8 @@ name: CI/CD
 
 on:
   push:
+    branches: [main, test]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -26,6 +28,7 @@ jobs:
 
   build:
     needs: test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,6 +55,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
