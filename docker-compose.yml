@@ -33,7 +33,7 @@ services:
         max-file: "3"
 
   bot:
-    build: .
+    image: ghcr.io/welcomeforalone/shrt-tt-reels:latest
     container_name: tiktok_downloader_bot
     restart: unless-stopped
     env_file: .env
