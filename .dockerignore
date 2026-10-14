@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env
 .git/
+cookies.txt
+*_cookies.txt
+*.cookies

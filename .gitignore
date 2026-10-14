@@ -7,6 +7,11 @@ ENV/
 env.bak/
 venv.bak/
 
+# Cookies and Credentials
+cookies.txt
+*_cookies.txt
+*.cookies
+
 # Custom files
 repomix-output.xml
 
