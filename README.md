@@ -228,7 +228,7 @@ flowchart LR
    - Triggers on push to `main` following successful tests.
    - Builds multi-architecture container images (`linux/amd64`, `linux/arm64`) using Docker Buildx and pushes to GitHub Container Registry (`ghcr.io`).
 3. **Job `deploy`**:
-   - Transfers `docker-compose.yml` to the production server via SCP and restarts services over SSH. External Actions are pinned to full commit SHAs to protect SSH credentials.
+   - Transfers `docker-compose.yml` to the production server via SCP and restarts services over SSH. External Actions are pinned to version tags (`appleboy/scp-action@v0.1.7` and `appleboy/ssh-action@v1.2.0`).
 
 ---
 

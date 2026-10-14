@@ -228,7 +228,7 @@ flowchart LR
    - Запускается только при пуше в `main` после успешных тестов.
    - Собирает multi-arch образ (`linux/amd64`, `linux/arm64`) через Docker Buildx и публикует в GitHub Container Registry (`ghcr.io`).
 3. **Job `deploy`**:
-   - Копирует `docker-compose.yml` на боевой сервер через SCP и выполняет перезапуск контейнера по SSH. Сторонние Actions зафиксированы по commit SHA для защиты доступа к SSH-ключам.
+   - Копирует `docker-compose.yml` на боевой сервер через SCP и выполняет перезапуск контейнера по SSH. Сторонние Actions зафиксированы по версиям (`appleboy/scp-action@v0.1.7` и `appleboy/ssh-action@v1.2.0`).
 
 ---
 
