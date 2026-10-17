@@ -51,7 +51,7 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
                 'base_url': ['http://bgutil-pot:4416']
             },
             'youtube': {
-                'player_client': ['web', 'mweb', 'android', 'ios']
+                'player_client': ['web', 'mweb', 'android', 'ios', 'tv_downgraded', 'web_embedded']
             }
         },
         'js_runtimes': {
@@ -73,7 +73,14 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
         try:
             shutil.copyfile(master_cookie, temp_cookie_path)
             ydl_opts['cookiefile'] = temp_cookie_path
-            logger.info(f"Loaded cookies from {master_cookie} ({os.path.getsize(master_cookie)} bytes)")
+            with open(master_cookie, encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            yt_status = 'OK' if 'LOGIN_INFO' in content else 'MISSING'
+            ig_status = 'OK' if 'sessionid' in content else 'MISSING'
+            logger.info(
+                f"Loaded cookies from {master_cookie} ({os.path.getsize(master_cookie)} bytes) "
+                f"[YouTube auth LOGIN_INFO: {yt_status}, Instagram sessionid: {ig_status}]"
+            )
         except Exception as e:
             logger.warning(f"Failed to copy cookies file: {e}")
     else:
