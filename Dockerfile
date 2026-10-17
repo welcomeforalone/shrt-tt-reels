@@ -5,6 +5,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# Deno JS runtime для yt-dlp (решение challenge-скриптов YouTube)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 # Создание и переключение на непривилегированного пользователя для безопасности
 RUN useradd -m -u 1000 botuser
 USER botuser

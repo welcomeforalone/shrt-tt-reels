@@ -4,3 +4,4 @@ pydantic-settings==2.7.1
 yt-dlp>=2026.8.19
 httpx==0.28.1
 bgutil-ytdlp-pot-provider>=2.0.2
+yt-dlp-ejs>=0.8.0

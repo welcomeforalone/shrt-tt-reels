@@ -49,7 +49,14 @@ def _sync_yt_dlp_download(url: str, output_path: str, use_proxy: bool) -> bool:
         'extractor_args': {
             'youtubepot-bgutilhttp': {
                 'base_url': ['http://bgutil-pot:4416']
+            },
+            'youtube': {
+                'player_client': ['web', 'mweb', 'android', 'ios']
             }
+        },
+        'js_runtimes': {
+            'deno': {},
+            'node': {},
         },
         'socket_timeout': 30,
         'max_filesize': 150 * 1024 * 1024,
